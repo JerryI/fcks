@@ -23,6 +23,8 @@ fcks scaffold [path] # recreate the remote folder structure locally
 fcks free [path]     # delete local files while retaining their folders
 fcks ls [path]       # list shared, local-only, and remote-only entries
 fcks push -f .       # skip confirmation (`-f` works with every operation)
+fcks pull -s .       # select one remote child folder to pull
+fcks push -s .       # select one local child folder to push
 ```
 
 Short aliases are available: `ph` for `push`, `pl` for `pull`, `sc` for
@@ -41,6 +43,11 @@ along with approximate totals to upload, download, or free locally or remotely,
 then ask once for confirmation. `-f` auto-confirms; it goes before the optional
 path, for example `fcks pull -f ./archive` or `fcks -f ./archive` for an
 implicit merge.
+
+`pull -s [path]` opens an interactive list of immediate remote child folders,
+creates the selected folder locally, and pulls that subtree. `push -s [path]`
+lists immediate local child folders and pushes the selected subtree. `-s` is
+only available for `pull` and `push`, and cannot be combined with `-f`.
 
 In an interactive terminal, regular sync commands use OpenTUI for the same
 simple flow: scan, review the complete plan, confirm once, and watch progress.

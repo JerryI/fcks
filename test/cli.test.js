@@ -23,16 +23,30 @@ test("normal invocation lists commands and connection status", async () => {
 })
 
 test("parses explicit commands, default paths, implicit merge, and force", () => {
-  expect(parseInvocation(["push"])).toEqual({ command: "push", force: false, path: "." })
-  expect(parseInvocation(["pull", "-f", "folder"])).toEqual({ command: "pull", force: true, path: "folder" })
-  expect(parseInvocation(["merge", "folder"])).toEqual({ command: "merge", force: false, path: "folder" })
-  expect(parseInvocation(["scaffold", "folder"])).toEqual({ command: "scaffold", force: false, path: "folder" })
-  expect(parseInvocation(["ls", "folder"])).toEqual({ command: "ls", force: false, path: "folder" })
-  expect(parseInvocation(["ph", "folder"])).toEqual({ command: "push", force: false, path: "folder" })
-  expect(parseInvocation(["pl", "folder"])).toEqual({ command: "pull", force: false, path: "folder" })
-  expect(parseInvocation(["sc", "folder"])).toEqual({ command: "scaffold", force: false, path: "folder" })
-  expect(parseInvocation(["fr", "folder"])).toEqual({ command: "free", force: false, path: "folder" })
-  expect(parseInvocation(["folder"])).toEqual({ command: "merge", force: false, path: "folder" })
+  expect(parseInvocation(["push"])).toEqual({ command: "push", force: false, select: false, path: "." })
+  expect(parseInvocation(["pull", "-f", "folder"])).toEqual({ command: "pull", force: true, select: false, path: "folder" })
+  expect(parseInvocation(["merge", "folder"])).toEqual({ command: "merge", force: false, select: false, path: "folder" })
+  expect(parseInvocation(["scaffold", "folder"])).toEqual({ command: "scaffold", force: false, select: false, path: "folder" })
+  expect(parseInvocation(["ls", "folder"])).toEqual({ command: "ls", force: false, select: false, path: "folder" })
+  expect(parseInvocation(["ph", "folder"])).toEqual({ command: "push", force: false, select: false, path: "folder" })
+  expect(parseInvocation(["pl", "folder"])).toEqual({ command: "pull", force: false, select: false, path: "folder" })
+  expect(parseInvocation(["sc", "folder"])).toEqual({ command: "scaffold", force: false, select: false, path: "folder" })
+  expect(parseInvocation(["fr", "folder"])).toEqual({ command: "free", force: false, select: false, path: "folder" })
+  expect(parseInvocation(["folder"])).toEqual({ command: "merge", force: false, select: false, path: "folder" })
+})
+
+test("parses selection mode only for push and pull and rejects force combinations", () => {
+  expect(parseInvocation(["pull", "-s", "folder"])).toEqual({
+    command: "pull",
+    force: false,
+    select: true,
+    path: "folder",
+  })
+  expect(parseInvocation(["ph", "-s"])).toEqual({ command: "push", force: false, select: true, path: "." })
+  expect(() => parseInvocation(["pull", "-f", "-s", "."])).toThrow("cannot be used together")
+  expect(() => parseInvocation(["push", "-s", "-f", "."])).toThrow("cannot be used together")
+  expect(() => parseInvocation(["merge", "-s", "."])).toThrow("only available for push and pull")
+  expect(() => parseInvocation(["pull", "-s", "-s", "."])).toThrow("only be specified once")
 })
 
 test("passes force mode only when -f comes before the path", async () => {

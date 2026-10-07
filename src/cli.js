@@ -1,6 +1,7 @@
 #!/usr/bin/env bun
 
 import { getConfigPath, loadConfig, resetConfig } from "./config.js"
+import { selectSyncChild } from "./folder-selection.js"
 import { listFolder } from "./listing.js"
 import { syncFolder } from "./sync.js"
 import { resolveSyncTarget } from "./target.js"
@@ -52,7 +53,15 @@ export async function main(args = Bun.argv.slice(2)) {
 
   try {
     const allowMissing = ["pull", "merge", "scaffold", "ls"].includes(invocation.command)
-    const resolved = await resolveSyncTarget(invocation.path, process.cwd(), { allowMissing })
+    let resolved = await resolveSyncTarget(invocation.path, process.cwd(), { allowMissing })
+    if (invocation.select) {
+      const selectedPath = await selectSyncChild({ ...resolved, command: invocation.command }, config)
+      if (!selectedPath) {
+        console.log("Cancelled; no files were changed.")
+        return 0
+      }
+      resolved = { path: selectedPath }
+    }
     if (invocation.command === "ls") await listFolder(resolved, config)
     else {
       const result = await syncFolder({ ...resolved, command: invocation.command, force: invocation.force }, config)
@@ -79,14 +88,28 @@ export function parseInvocation(args) {
   else if (aliases.has(rest[0])) command = aliases.get(rest.shift())
 
   let force = false
-  if (rest[0] === "-f") {
-    force = true
-    rest.shift()
+  let select = false
+  const seenFlags = new Set()
+  while (rest[0] === "-f" || rest[0] === "-s") {
+    const flag = rest.shift()
+    if (seenFlags.has(flag)) {
+      if (flag === "-f") {
+        throw new Error("Expected one local folder or file path, with a single flag before it. Run fcks --help for usage.")
+      }
+      throw new Error(`Flag ${flag} may only be specified once.`)
+    }
+    seenFlags.add(flag)
+    if (flag === "-f") force = true
+    else select = true
+  }
+  if (force && select) throw new Error("The -f and -s flags cannot be used together.")
+  if (select && command !== "push" && command !== "pull") {
+    throw new Error("The -s flag is only available for push and pull commands.")
   }
   if (rest.some((argument) => argument.startsWith("-")) || rest.length > 1) {
-    throw new Error("Expected one local folder or file path, with a single -f before it. Run fcks --help for usage.")
+    throw new Error("Expected one local folder or file path, with a single flag before it. Run fcks --help for usage.")
   }
-  return { command, force, path: rest[0] ?? "." }
+  return { command, force, select, path: rest[0] ?? "." }
 }
 
 async function printHelp() {
@@ -104,10 +127,13 @@ Commands:
   fcks ls [path]      List local, remote-only, and shared folder entries
   Aliases: ph=push, pl=pull, sc=scaffold, fr=free
   fcks <command> -f   Approve all changes without prompting
+  fcks pull -s [path] Select a remote child folder to pull
+  fcks push -s [path] Select a local child folder to push
   fcks --help         Show this help
 
 Paths default to the current directory and must be inside the configured local
 folder. Hidden files and folders are included; empty folders are not synced.
+The -f and -s flags cannot be combined.
 
 DAV server:  ${config?.serverUrl ?? "not configured"}
 Local folder: ${config?.localFolder || "not configured"}
