@@ -109,7 +109,7 @@ permissions to the native user config directory:
 - Linux: `$XDG_CONFIG_HOME/fcks/config.json` or `~/.config/fcks/config.json`
 - Windows: `%APPDATA%\\fcks\\config.json`
 
-__Warning__: this first version stores the password in that protected JSON file.
+__Warning__: FCKS stores the password in that protected JSON file.
 
 __Note__: all remote paths are relative to the configured DAV root. Traversal with `..`
 is rejected. ETag is cheap server metadata; `getHash()` streams the remote file
