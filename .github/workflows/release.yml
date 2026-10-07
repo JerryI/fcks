@@ -1,0 +1,89 @@
+name: Release binaries
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.asset }}
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            target: bun-linux-x64
+            asset: fcks-linux-x64
+          - runner: ubuntu-24.04-arm
+            target: bun-linux-arm64
+            asset: fcks-linux-arm64
+          - runner: windows-2025
+            target: bun-windows-x64
+            asset: fcks-windows-x64.exe
+          - runner: windows-11-arm
+            target: bun-windows-arm64
+            asset: fcks-windows-arm64.exe
+          - runner: macos-15-intel
+            target: bun-darwin-x64
+            asset: fcks-macos-x64
+          - runner: macos-15
+            target: bun-darwin-arm64
+            asset: fcks-macos-arm64
+
+    steps:
+      - name: Check out release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.release.tag_name }}
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: 1.4.2
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Run tests
+        run: bun test
+
+      - name: Compile executable
+        run: bun build ./src/cli.js --compile --minify --sourcemap --target=${{ matrix.target }} --outfile=dist/${{ matrix.asset }}
+
+      - name: Smoke-test executable
+        run: ./dist/${{ matrix.asset }} --help
+
+      - name: Store executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.asset }}
+          path: dist/${{ matrix.asset }}
+          if-no-files-found: error
+          retention-days: 1
+
+  publish:
+    name: Upload release assets
+    needs: build
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download executables
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create checksums
+        run: sha256sum dist/* > dist/SHA256SUMS.txt
+
+      - name: Upload executables to release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: gh release upload "$RELEASE_TAG" dist/* --clobber
