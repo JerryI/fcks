@@ -1,0 +1,21 @@
+{
+  "name": "fcks",
+  "version": "0.1.0",
+  "description": "A Bun-powered command line WebDAV sync client",
+  "type": "module",
+  "bin": {
+    "fcks": "./src/cli.js"
+  },
+  "scripts": {
+    "dev": "bun run src/cli.js",
+    "start": "bun run src/cli.js",
+    "test": "bun test"
+  },
+  "dependencies": {
+    "@opentui/core": "^0.5.11",
+    "webdav": "^5.11.0"
+  },
+  "engines": {
+    "bun": ">=1.3.0"
+  }
+}
