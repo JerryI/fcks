@@ -58,8 +58,8 @@ export class DavClient {
     return contents instanceof Uint8Array ? contents : new Uint8Array(contents)
   }
 
-  async getText(path) {
-    const contents = await this.client.getFileContents(this.resolvePath(path), { format: "text" })
+  async getText(path, signal) {
+    const contents = await this.client.getFileContents(this.resolvePath(path), { format: "text", signal })
     return typeof contents === "string" ? contents : new TextDecoder().decode(contents)
   }
 

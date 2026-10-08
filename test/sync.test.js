@@ -32,6 +32,90 @@ describe("sync planner", () => {
     ])
   })
 
+  test("push honors local ignore rules without hiding the ignore file itself", async () => {
+    const root = await makeTempDirectory()
+    await mkdir(join(root, "cache"))
+    await writeFile(join(root, ".fcksignore"), "*.tmp\ncache/\n!important.tmp\n")
+    await writeFile(join(root, "draft.tmp"), "local draft")
+    await writeFile(join(root, "important.tmp"), "important")
+    await writeFile(join(root, "keep.txt"), "keep")
+    await writeFile(join(root, "cache", "entry.txt"), "cached")
+    const remote = new FakeDav([
+      remoteFile("remote.tmp", "remote draft"),
+      remoteFile("cache/old.txt", "old cache"),
+      remoteFile("remove.txt", "remove"),
+    ])
+
+    const plan = await buildSyncPlan({ command: "push", scope: rootScope(root), dav: remote, progress })
+
+    expect(plan.actions.map(({ type, path }) => [type, path])).toEqual([
+      ["remove-remote", "remove.txt"],
+      ["upload-add", ".fcksignore"],
+      ["upload-add", "important.tmp"],
+      ["upload-add", "keep.txt"],
+    ])
+  })
+
+  test("merge uses the newer remote ignore file before planning sync", async () => {
+    const root = await makeTempDirectory()
+    await writeFile(join(root, ".fcksignore"), "*.local\n")
+    await writeFile(join(root, "send.local"), "send")
+    await writeFile(join(root, "skip.remote"), "skip")
+    await utimes(join(root, ".fcksignore"), new Date(1_000), new Date(1_000))
+    const remote = new FakeDav([
+      remoteFile(".fcksignore", "*.remote\n", 3_000),
+    ])
+
+    const plan = await buildSyncPlan({ command: "merge", scope: rootScope(root), dav: remote, progress })
+
+    expect(remote.textReads).toEqual([".fcksignore"])
+    expect(plan.actions.map(({ type, path }) => [type, path])).toEqual([
+      ["upload-add", "send.local"],
+      ["download-update", ".fcksignore"],
+    ])
+  })
+
+  test("push uses the newer local ignore file without reading the older remote copy", async () => {
+    const root = await makeTempDirectory()
+    await writeFile(join(root, ".fcksignore"), "*.tmp\n")
+    await writeFile(join(root, "keep.txt"), "keep")
+    await writeFile(join(root, "skip.tmp"), "skip")
+    await utimes(join(root, ".fcksignore"), new Date(3_000), new Date(3_000))
+    const remote = new FakeDav([
+      remoteFile(".fcksignore", "*.txt\n", 1_000),
+    ])
+
+    const plan = await buildSyncPlan({ command: "push", scope: rootScope(root), dav: remote, progress })
+
+    expect(remote.textReads).toEqual([])
+    expect(plan.actions.map(({ type, path }) => [type, path])).toEqual([
+      ["upload-add", "keep.txt"],
+      ["upload-update", ".fcksignore"],
+    ])
+  })
+
+  test("nested ignore rules are scoped to their containing folder", async () => {
+    const root = await makeTempDirectory()
+    await mkdir(join(root, "nested"))
+    await writeFile(join(root, "private.txt"), "root")
+    await writeFile(join(root, "nested", ".fcksignore"), "/private.txt\n*.tmp\n")
+    await writeFile(join(root, "nested", "private.txt"), "nested")
+    await mkdir(join(root, "nested", "deeper"))
+    await writeFile(join(root, "nested", "deeper", "private.txt"), "deeper")
+    await writeFile(join(root, "nested", "draft.tmp"), "draft")
+    await writeFile(join(root, "nested", "keep.txt"), "keep")
+    const remote = new FakeDav([])
+
+    const plan = await buildSyncPlan({ command: "push", scope: rootScope(root), dav: remote, progress })
+
+    expect(plan.actions.map(({ type, path }) => [type, path])).toEqual([
+      ["upload-add", "nested/.fcksignore"],
+      ["upload-add", "nested/deeper/private.txt"],
+      ["upload-add", "nested/keep.txt"],
+      ["upload-add", "private.txt"],
+    ])
+  })
+
   test("preserves the path below the configured local root", async () => {
     const root = await makeTempDirectory()
     const target = join(root, "bar")
@@ -155,14 +239,16 @@ describe("sync planner", () => {
     const root = await makeTempDirectory()
     await mkdir(join(root, "a", "b"), { recursive: true })
     await writeFile(join(root, "a", "b", "file.txt"), "data")
+    await writeFile(join(root, "a", ".fcksignore"), "b/\n")
 
     const plan = await buildSyncPlan({ command: "free", scope: rootScope(root), dav: new FakeDav([]), progress })
     const lines = []
     printSyncPlan(plan, { log: (line) => lines.push(line) })
-    expect(lines).toContain("Estimated size: 4 B to be freed locally.")
+    expect(lines).toContain("Estimated size: 7 B to be freed locally.")
     await executeSyncPlan(plan, { dav: new FakeDav([]), progress })
     expect((await stat(join(root, "a", "b"))).isDirectory()).toBe(true)
     await expect(stat(join(root, "a", "b", "file.txt"))).rejects.toMatchObject({ code: "ENOENT" })
+    await expect(stat(join(root, "a", ".fcksignore"))).rejects.toMatchObject({ code: "ENOENT" })
   })
 
   test("previews approximate upload, download, and freed sizes", () => {
@@ -288,6 +374,7 @@ class FakeDav {
     this.contents = new Map(entries.filter((entry) => entry.type === "file").map((entry) => [entry.filename.slice("/remote/".length), entry.contents]))
     this.createdDirectories = []
     this.deleted = []
+    this.textReads = []
   }
   async list() {
     return this.entries
@@ -297,6 +384,10 @@ class FakeDav {
   }
   async getHash(path, algorithm) {
     return createHash(algorithm).update(this.contents.get(path)).digest("hex")
+  }
+  async getText(path) {
+    this.textReads.push(path)
+    return this.contents.get(path).toString("utf8")
   }
   async createDirectory(path) {
     this.createdDirectories.push(path)

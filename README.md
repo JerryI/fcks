@@ -75,6 +75,15 @@ local files or folders.
 all local files under the target without removing directories.
 
 Hidden files and folders are included. Empty folders are ignored, like Git.
+For `push` and `merge`, a `.fcksignore` file can exclude files and folders
+below the directory that contains it. Its syntax follows Git ignore patterns:
+blank lines and `#` comments are skipped, glob patterns are supported, a
+trailing `/` matches folders, and `!` negates a previous pattern. Nested
+`.fcksignore` files apply to their own subtrees. If the same ignore file exists
+locally and remotely, the newer copy supplies the rules for that operation.
+The `.fcksignore` files themselves are synced normally, and `free` removes them
+along with all other local files.
+
 The implementation keeps no sync database. It uses bounded-concurrency scans,
 streaming hashes, direct streamed downloads, and streamed uploads, so memory
 use does not scale with file size. WebDAV ETags are treated as opaque validators. Equal-sized files at the same path are streamed through SHA-256 on both sides for a correct comparison.

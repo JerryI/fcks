@@ -6,6 +6,7 @@
       "name": "fcks",
       "dependencies": {
         "@opentui/core": "^0.5.11",
+        "minimatch": "^9.0.9",
         "webdav": "^5.11.0",
       },
     },

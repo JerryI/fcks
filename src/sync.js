@@ -4,6 +4,7 @@ import { dirname, join, posix, relative, sep } from "node:path"
 import { createInterface } from "node:readline/promises"
 
 import { DavClient } from "./dav.js"
+import { applyIgnoreFiles } from "./ignore.js"
 import { formatPlanSizeEstimate } from "./plan-size.js"
 import { assertWithinLocalRoot } from "./target.js"
 
@@ -112,7 +113,7 @@ export async function buildSyncPlan({ command, scope, dav, progress = new NullPr
 
   progress.update("Scanning local files", 0, null)
   throwIfAborted(signal)
-  const local = await scanLocalTree(scope.root, scope.target, (count) => progress.update("Scanning local files", count, null), signal)
+  let local = await scanLocalTree(scope.root, scope.target, (count) => progress.update("Scanning local files", count, null), signal)
   progress.finish("Scanning local files", local.files.size)
 
   if (command === "free") {
@@ -128,8 +129,14 @@ export async function buildSyncPlan({ command, scope, dav, progress = new NullPr
 
   progress.update("Reading remote files", 0, null)
   throwIfAborted(signal)
-  const remote = await scanRemoteTree(dav, scope.relativePath, signal)
+  let remote = await scanRemoteTree(dav, scope.relativePath, signal)
   progress.finish("Reading remote files", remote.files.size)
+
+  if (command === "push" || command === "merge") {
+    const filtered = await applyIgnoreFiles({ local, remote, dav, signal })
+    local = filtered.local
+    remote = filtered.remote
+  }
 
   if (command === "scaffold") {
     const dirs = impliedDirectories(remote.files.keys(), scope.relativePath)
