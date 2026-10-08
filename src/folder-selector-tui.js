@@ -38,6 +38,7 @@ export async function runFolderSelector({ command, path, folders }) {
       height: "100%",
       flexDirection: "column",
       backgroundColor: colors.background,
+      padding: 1,
       gap: 1,
     })
     const list = new SelectRenderable(renderer, {

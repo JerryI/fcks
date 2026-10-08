@@ -216,6 +216,7 @@ function makeScreen(renderer, id) {
     height: "100%",
     flexDirection: "column",
     backgroundColor: colors.background,
+    padding: 1,
   })
 }
 
@@ -259,6 +260,7 @@ function showFolderBrowser(renderer, client, config, finish, fail) {
     height: "100%",
     flexDirection: "column",
     backgroundColor: colors.background,
+    padding: 1,
   })
   const pathText = new TextRenderable(renderer, { content: "", fg: colors.accent })
   const status = new TextRenderable(renderer, {

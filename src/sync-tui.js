@@ -33,6 +33,7 @@ export async function runSyncTui({ command, scope, buildPlan, executePlan, inter
       height: "100%",
       flexDirection: "column",
       backgroundColor: colors.background,
+      padding: 1,
       gap: 1,
     })
     const summary = new TextRenderable(renderer, {
