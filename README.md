@@ -20,10 +20,12 @@ LOCAL ROOT                                  DAV ROOT
 
 Features:
 
-- No temporary files
+- No temporary files, no database
 - Stateless
-- A limited set of commands
-- Download or offload folders and subfolders at any time
+- Limited set of commands
+- Virtual-folders (scaffold)
+- Mirrors folder tree
+- Download, upload, free up folders and any subfolders
 
 This project was born out of deep frustration with OneDrive and Nextcloud sync issues on macOS. Nevertheless, fcks supports all platforms. 
 
@@ -97,6 +99,8 @@ local files or folders.
 all local files under the target without removing directories.
 
 Hidden files and folders are included. Empty folders are ignored, like Git.
+
+### .fcksignore
 For `push` and `merge`, a `.fcksignore` file can exclude files and folders
 below the directory that contains it. Its syntax follows Git ignore patterns:
 blank lines and `#` comments are skipped, glob patterns are supported, a
@@ -106,17 +110,17 @@ locally and remotely, the newer copy supplies the rules for that operation.
 The `.fcksignore` files themselves are synced normally, and `free` removes them
 along with all other local files.
 
+### Hashes
 The implementation keeps no sync database. It uses bounded-concurrency scans,
 streaming hashes, direct streamed downloads, and streamed uploads, so memory
 use does not scale with file size. WebDAV ETags are treated as opaque validators. Equal-sized files at the same path are streamed through SHA-256 on both sides for a correct comparison.
 
+### File attributes
 Note: standard WebDAV does not carry portable
 POSIX ownership, ACL, executable-bit, or extended-attribute metadata, so those
 attributes are not synchronized between machines.
 
-`fcks --reset` recursively removes the whole OS-specific `fcks` app-data
-directory, including its configuration and any future cache files. It does not
-remove the parent Application Support, config, or AppData directory.
+`fcks --reset` recursively removes the whole OS-specific `fcks` configuration
 
 ## Release binaries
 
@@ -134,14 +138,6 @@ To make the executable available system-wide, rename the binary to `fcks` (`fcks
 
 ```sh
 bun install
-bun link
-fcks --config
-```
-
-`bun link` makes the `fcks` command available. You can also run it without
-linking:
-
-```sh
 bun run src/cli.js --config
 ```
 
@@ -153,8 +149,10 @@ permissions to the native user config directory:
 - Linux: `$XDG_CONFIG_HOME/fcks/config.json` or `~/.config/fcks/config.json`
 - Windows: `%APPDATA%\\fcks\\config.json`
 
-__Warning__: FCKS stores the password in that protected JSON file.
+__Warning__: FCKS stores the password in "that" protected JSON file.
 
-__Note__: all remote paths are relative to the configured DAV root. Traversal with `..`
+__Important__: all remote paths are relative to the configured DAV root. Traversal with `..`
 is rejected. ETag is cheap server metadata; `getHash()` streams the remote file
 through a digest without buffering it in memory.
+
+Happy FCKS to everyone!
