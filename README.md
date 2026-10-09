@@ -2,6 +2,10 @@
 
 An experimental, simple, no-frills command-line WebDAV sync client written in plain JavaScript (Bun) with support for virtual folders
 
+![TUI Example](./img.png)
+
+## How it works
+
 ```
 LOCAL ROOT                                  DAV ROOT
 /my/files                                   /remote/files
