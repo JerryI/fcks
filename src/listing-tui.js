@@ -1,6 +1,7 @@
 import {
   BoxRenderable,
-  SelectRenderable,
+  ScrollBoxRenderable,
+  TextAttributes,
   TextRenderable,
   createCliRenderer,
 } from "@opentui/core"
@@ -15,9 +16,15 @@ const colors = {
 }
 
 const sourceLabels = {
-  both: "local + remote",
+  both: "both sides",
   local: "local only",
   remote: "remote only",
+}
+
+const sourceColors = {
+  both: "#86efac",
+  local: "#67e8f9",
+  remote: "#c4b5fd",
 }
 
 /** Render a read-only, scrollable view of a combined local and remote listing. */
@@ -58,28 +65,37 @@ export async function runListingTui({ path, entries }) {
     }))
 
     if (entries.length > 0) {
-      const list = new SelectRenderable(renderer, {
+      screen.add(new TextRenderable(renderer, {
+        content: `${"SOURCE".padEnd(13)} ${"TYPE".padEnd(19)} NAME`,
+        fg: colors.muted,
+        attributes: TextAttributes.BOLD,
+      }))
+      const list = new ScrollBoxRenderable(renderer, {
         flexGrow: 1,
         width: "100%",
-        options: entries.map((entry) => ({
-          name: entry.displayName,
-          description: `${sourceLabels[entry.source]} · ${entry.type}`,
-          value: entry.name,
-        })),
         backgroundColor: colors.panel,
-        focusedBackgroundColor: colors.panel,
-        textColor: colors.text,
-        focusedTextColor: colors.text,
-        selectedBackgroundColor: colors.border,
-        selectedTextColor: "#ffffff",
-        descriptionColor: colors.muted,
-        selectedDescriptionColor: "#dbeafe",
-        showScrollIndicator: true,
-        wrapSelection: true,
+        focusable: true,
+        scrollX: false,
+        scrollY: true,
+        contentOptions: {
+          flexDirection: "column",
+          backgroundColor: colors.panel,
+          padding: 1,
+        },
       })
+      for (const entry of entries) {
+        list.add(new TextRenderable(renderer, {
+          width: "100%",
+          height: 1,
+          content: listingRow(entry),
+          fg: sourceColors[entry.source],
+          wrapMode: "none",
+          truncate: true,
+        }))
+      }
       screen.add(list)
       screen.add(new TextRenderable(renderer, {
-        content: "↑↓ browse · Enter, q, Esc, or Ctrl+C close",
+        content: "↑↓ or PgUp/PgDn scroll · Enter, q, Esc, or Ctrl+C close",
         fg: colors.muted,
       }))
       renderer.root.add(screen)
@@ -122,5 +138,10 @@ export async function runListingTui({ path, entries }) {
 function listingSummary(entries) {
   const counts = { both: 0, local: 0, remote: 0 }
   for (const entry of entries) counts[entry.source] += 1
-  return `${entries.length} ${entries.length === 1 ? "entry" : "entries"} · ${counts.both} shared · ${counts.local} local only · ${counts.remote} remote only`
+  return `${entries.length} ${entries.length === 1 ? "entry" : "entries"} · ${counts.both} both sides · ${counts.local} local only · ${counts.remote} remote only`
+}
+
+function listingRow(entry) {
+  const source = `● ${sourceLabels[entry.source]}`.padEnd(13)
+  return `${source} ${entry.type.padEnd(19)} ${entry.displayName}`
 }
