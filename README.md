@@ -25,7 +25,11 @@ Features:
 - A limited set of commands
 - Download or offload folders and subfolders at any time
 
-This project was born out of deep frustration with OneDrive and Nextcloud sync issues on macOS. Nevertheless, fcks supports all platforms. Shortest mental model for commands:
+This project was born out of deep frustration with OneDrive and Nextcloud sync issues on macOS. Nevertheless, fcks supports all platforms. 
+
+### Why?
+Other popular solutions didn’t provide the kind of virtual-folder support I needed a simple alternative to "Files On-Demand". Instead of keeping placeholder files, fcks keeps only the folder structure visible and lets you "hydrate" its contents when needed.
+
 
 ## List of Commands
 
