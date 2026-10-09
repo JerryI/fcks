@@ -1,6 +1,7 @@
 # fcks - F@cking Sync
 
-An experimental, simple, no-frills command-line WebDAV sync client written in plain JavaScript (Bun) with support for virtual folders
+An experimental, simple, no-frills command-line WebDAV sync client written in
+plain JavaScript (Bun), with support for virtual folders.
 
 ![TUI Example](./img.png)
 
@@ -17,7 +18,7 @@ LOCAL ROOT                                  DAV ROOT
 
       fcks push     = remote should look like local
       fcks pull     = local should look like remote
-      fcks merge    = keep both sides; newest changed file wins
+      fcks merge    = keep both sides; most recently modified file wins
       fcks scaffold = copy remote folder structure, without files
       fcks free     = delete local files, but keep folders
       fcks rm       = delete a path locally and remotely
@@ -28,14 +29,19 @@ Features:
 - No temporary files, no database
 - Stateless
 - Limited set of commands
-- Virtual-folders (scaffold)
-- Mirrors folder tree
-- Download, upload, free up folders and any subfolders
+- Virtual folder scaffolding
+- Folder-tree mirroring
+- File downloads and uploads, plus local folder cleanup, including subfolders
 
-This project was born out of deep frustration with OneDrive and Nextcloud sync issues on macOS. Nevertheless, fcks supports all platforms. 
+This project was born out of deep frustration with OneDrive and Nextcloud sync
+issues on macOS. Nevertheless, fcks supports all platforms.
 
 ### Why?
-Other popular solutions didn’t provide the kind of virtual-folder support I needed a simple alternative to "Files On-Demand". Instead of keeping placeholder files, fcks keeps only the folder structure visible and lets you "hydrate" its contents when needed.
+
+Other popular solutions didn’t provide the kind of virtual-folder support I
+needed: a simple alternative to Files On-Demand. Instead of keeping placeholder
+files, fcks keeps only the folder structure visible and lets you "hydrate" its
+contents when needed.
 
 
 ## List of Commands
@@ -47,7 +53,7 @@ fcks --reset         # delete the complete fcks app-data directory
 fcks .               # merge the current folder (same as `fcks merge .`)
 fcks push [path]     # make the remote subtree match local
 fcks pull [path]     # make the local subtree match remote
-fcks merge [path]    # copy both ways; newest changed file wins, never delete
+fcks merge [path]    # copy both ways; most recently modified file wins; never delete
 fcks scaffold [path] # recreate the remote folder structure locally
 fcks free [path]     # delete local files while retaining their folders
 fcks rm <path>       # delete a file/folder locally and remotely
@@ -64,7 +70,7 @@ The path defaults to the current directory for commands with an optional path.
 `rm` requires a path. `push`, `pull`, `merge`, `free`, and `rm` operate on an
 exact file or folder target; `scaffold` and `ls` require a folder. Every target
 must be the configured local root or a descendant; paths
-outside it are rejected. Synchronization rejects symbolic-link entries because
+outside it are rejected. Synchronization rejects symbolic links because
 WebDAV cannot preserve their semantics safely. The relative path below
 the configured local root is preserved below the configured DAV root. For
 example, local root `/foo` and DAV root `/bar` map
@@ -84,7 +90,7 @@ only available for `pull` and `push`, and cannot be combined with `-f`.
 In an interactive terminal, regular sync commands use OpenTUI for the same
 simple flow: scan, review the complete plan, confirm once, and watch progress.
 `ls` also uses an OpenTUI browser for its combined local and remote listing.
-When terminal interaction is unavailable, it falls back to a plain text table
+When terminal interaction is unavailable, it falls back to a plain-text table
 that can be redirected or piped.
 
 Press `Esc` or `Ctrl+C` to interrupt planning or execution. No new work is
@@ -97,16 +103,16 @@ destination file. Interrupted CLI runs exit with status 130.
 - `ls` is read-only and lists one folder level, like Unix `ls`.
 
 - `push` and `pull` are intentionally authoritative and may delete files on the
-destination side. 
+destination side.
 
-- `merge` never deletes; differing files are copied from the
-side with the later modification time. Equal-time content conflicts and
-file-versus-directory conflicts are reported and left unchanged. 
+- `merge` never deletes; differing files are copied from the side with the later
+modification time. Equal-time content conflicts and file-versus-directory
+conflicts are reported and left unchanged.
 
-- `scaffold` creates missing directories implied by remote files without modifying existing
-local files or folders. 
+- `scaffold` creates missing directories implied by remote files without
+modifying existing local files or folders.
 
-- `free` prints a merge-first safety warning. For a folder target it removes
+- `free` prints a merge-first safety warning. For a folder target, it removes
 all files below it without removing directories; for a file target it removes
 only that file.
 
@@ -129,26 +135,52 @@ along with all other local files.
 ### Hashes
 The implementation keeps no sync database. It uses bounded-concurrency scans,
 streaming hashes, direct streamed downloads, and streamed uploads, so memory
-use does not scale with file size. WebDAV ETags are treated as opaque validators. Equal-sized files at the same path are streamed through SHA-256 on both sides for a correct comparison.
+use does not scale with file size. WebDAV ETags are treated as opaque
+validators. Equal-sized files at the same path are streamed through SHA-256 on
+both sides for an accurate comparison.
 
 ### File attributes
-Note: standard WebDAV does not carry portable
+
+Note that standard WebDAV does not carry portable
 POSIX ownership, ACL, executable-bit, or extended-attribute metadata, so those
 attributes are not synchronized between machines.
 
-`fcks --reset` recursively removes the whole OS-specific `fcks` configuration
+`fcks --reset` recursively removes the entire OS-specific `fcks` configuration
+directory.
 
 ## Release binaries
 
 Publishing a GitHub Release builds standalone `fcks` executables for x64 and
-ARM64 Linux, Windows, and macOS. These executables include Bun, so users do not need a
-separate Bun installation.
+ARM64 versions of Linux, Windows, and macOS. These executables include Bun, so
+users do not need a separate Bun installation.
 
-To make the executable available system-wide, rename the binary to `fcks` (`fcks.exe` on Windows) and move it to:
+To make the executable available system-wide, rename the binary to `fcks`
+(`fcks.exe` on Windows) and move it to:
 
 - Windows: `C:\Program Files\fcks\` and add this directory to the system `PATH`
 - GNU/Linux: `/usr/local/bin/`
 - macOS: `/usr/local/bin/`
+
+On GNU/Linux and macOS, make the file executable:
+
+```sh
+chmod 755 /usr/local/bin/fcks
+```
+
+Note: *On macOS, you might need to approve the first run in the security
+settings because the app is not signed.*
+
+### I don't like installing shady software
+
+If you already have Bun installed, you can run the project directly:
+
+1. Clone this repository and `cd` into it.
+2. Run these commands to temporarily add `fcks` to your `PATH`:
+
+```sh
+bun install
+bun link
+```
 
 ## Development
 
@@ -157,18 +189,18 @@ bun install
 bun run src/cli.js --config
 ```
 
-The compact config flow asks for a local folder first, then DAV credentials,
-verifies the connection, and lets you browse, create, and choose a remote root. Configuration is written with owner-only
-permissions to the native user config directory:
+The compact configuration flow first asks for a local folder and then for DAV
+credentials. It verifies the connection and lets you browse, create, and choose
+a remote root. The configuration is written with owner-only permissions to the
+native user configuration directory:
 
 - macOS: `~/Library/Application Support/fcks/config.json`
 - Linux: `$XDG_CONFIG_HOME/fcks/config.json` or `~/.config/fcks/config.json`
 - Windows: `%APPDATA%\\fcks\\config.json`
 
-__Warning__: FCKS stores the password in "that" protected JSON file.
+__Warning__: FCKS stores the password in the "protected" JSON configuration file.
 
-__Important__: all remote paths are relative to the configured DAV root. Traversal with `..`
-is rejected. ETag is cheap server metadata; `getHash()` streams the remote file
-through a digest without buffering it in memory.
+__Important__: All remote paths are relative to the configured DAV root.
+Traversal with `..` (leading to the folder outside the configured root) is rejected.
 
-Happy FCKS to everyone!
+Happy FCKSing, everyone!
