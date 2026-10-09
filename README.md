@@ -1,15 +1,33 @@
 # fcks - F@cking Sync
 
-An experimental, simple, no-frills command-line WebDAV sync client written in plain JavaScript (Bun) with support for virtual folders.
+An experimental, simple, no-frills command-line WebDAV sync client written in plain JavaScript (Bun) with support for virtual folders
+
+```
+LOCAL ROOT                                  DAV ROOT
+/my/files                                   /remote/files
+    |                                             |
+    +---- docs/report.pdf <== same path ==> docs/report.pdf
+    +---- photos/cat.jpg   <== same path ==> photos/cat.jpg
+    |                                             |
+    +---------------- SCAN BOTH ------------------+
+
+      fcks push     = remote should look like local
+      fcks pull     = local should look like remote
+      fcks merge    = keep both sides; newest changed file wins
+      fcks scaffold = copy remote folder structure, without files
+      fcks free     = delete local files, but keep folders
+```
+
+Features:
 
 - No temporary files
 - Stateless
 - A limited set of commands
 - Download or offload folders and subfolders at any time
 
-This project was born out of deep frustration with OneDrive and Nextcloud sync issues on macOS. Nevertheless, fcks supports all platforms.
+This project was born out of deep frustration with OneDrive and Nextcloud sync issues on macOS. Nevertheless, fcks supports all platforms. Shortest mental model for commands:
 
-## Commands
+## List of Commands
 
 ```sh
 fcks                 # help and configured DAV endpoint
@@ -102,7 +120,13 @@ Publishing a GitHub Release builds standalone `fcks` executables for x64 and
 ARM64 Linux, Windows, and macOS. These executables include Bun, so users do not need a
 separate Bun installation.
 
-## Setup
+To make the executable available system-wide, rename the binary to `fcks` (`fcks.exe` on Windows) and move it to:
+
+- Windows: `C:\Program Files\fcks\` and add this directory to the system `PATH`
+- GNU/Linux: `/usr/local/bin/`
+- macOS: `/usr/local/bin/`
+
+## Development
 
 ```sh
 bun install
