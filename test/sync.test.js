@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, readFile, rm, stat, utimes, writeFile } from "node:fs/p
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 
-import { buildSyncPlan, executeSyncPlan, printSyncPlan } from "../src/sync.js"
+import { buildSyncPlan, executeSyncPlan, printSyncPlan, syncFolder } from "../src/sync.js"
 import { assertWithinLocalRoot } from "../src/target.js"
 
 const temporaryDirectories = []
@@ -134,6 +134,149 @@ describe("sync planner", () => {
     ])
   })
 
+  test("push targets one exact file without including its siblings", async () => {
+    const root = await makeTempDirectory()
+    const target = join(root, "target.txt")
+    await writeFile(target, "target")
+    await writeFile(join(root, "sibling.txt"), "sibling")
+
+    const plan = await buildSyncPlan({
+      command: "push",
+      scope: { root, target, relativePath: "target.txt" },
+      dav: new FakeDav([]),
+      progress,
+    })
+
+    expect(plan.actions.map(({ type, path }) => [type, path])).toEqual([
+      ["upload-add", "target.txt"],
+    ])
+  })
+
+  test("pull targets one exact remote file", async () => {
+    const root = await makeTempDirectory()
+    const target = join(root, "target.txt")
+    const plan = await buildSyncPlan({
+      command: "pull",
+      scope: { root, target, relativePath: "target.txt" },
+      dav: new FakeDav([
+        remoteFile("target.txt", "target"),
+        remoteFile("sibling.txt", "sibling"),
+      ]),
+      progress,
+    })
+
+    expect(plan.actions.map(({ type, path }) => [type, path])).toEqual([
+      ["download-add", "target.txt"],
+    ])
+  })
+
+  test("merge compares one exact file", async () => {
+    const root = await makeTempDirectory()
+    const target = join(root, "target.txt")
+    await writeFile(target, "new local")
+    await utimes(target, new Date(3_000), new Date(3_000))
+
+    const plan = await buildSyncPlan({
+      command: "merge",
+      scope: { root, target, relativePath: "target.txt" },
+      dav: new FakeDav([remoteFile("target.txt", "old remote", 1_000)]),
+      progress,
+    })
+
+    expect(plan.actions.map(({ type, path }) => [type, path])).toEqual([
+      ["upload-update", "target.txt"],
+    ])
+  })
+
+  test("exact targets preserve push, pull, and merge file-directory rules", async () => {
+    const pushRoot = await makeTempDirectory()
+    const pushTarget = join(pushRoot, "shape")
+    await writeFile(pushTarget, "local file")
+    const pushPlan = await buildSyncPlan({
+      command: "push",
+      scope: { root: pushRoot, target: pushTarget, relativePath: "shape" },
+      dav: new FakeDav([
+        remoteDirectory("shape"),
+        remoteFile("shape/child.txt", "remote child"),
+      ]),
+      progress,
+    })
+    expect(pushPlan.actions.map(({ type, path }) => [type, path])).toEqual([
+      ["remove-remote-directory", "shape"],
+      ["upload-add", "shape"],
+    ])
+
+    const pullRoot = await makeTempDirectory()
+    const pullTarget = join(pullRoot, "shape")
+    await mkdir(pullTarget)
+    await writeFile(join(pullTarget, "child.txt"), "local child")
+    const pullPlan = await buildSyncPlan({
+      command: "pull",
+      scope: { root: pullRoot, target: pullTarget, relativePath: "shape" },
+      dav: new FakeDav([remoteFile("shape", "remote file")]),
+      progress,
+    })
+    expect(pullPlan.actions.map(({ type, path }) => [type, path])).toEqual([
+      ["remove-local-directory", "shape"],
+      ["download-add", "shape"],
+    ])
+
+    const mergePlan = await buildSyncPlan({
+      command: "merge",
+      scope: { root: pushRoot, target: pushTarget, relativePath: "shape" },
+      dav: new FakeDav([
+        remoteDirectory("shape"),
+        remoteFile("shape/child.txt", "remote child"),
+      ]),
+      progress,
+    })
+    expect(mergePlan.actions.map(({ type, path }) => [type, path])).toEqual([
+      ["conflict", "shape"],
+    ])
+  })
+
+  test("free removes one exact file without touching its siblings", async () => {
+    const root = await makeTempDirectory()
+    const target = join(root, "target.txt")
+    await writeFile(target, "target")
+    await writeFile(join(root, "sibling.txt"), "sibling")
+
+    const plan = await buildSyncPlan({
+      command: "free",
+      scope: { root, target, relativePath: "target.txt" },
+      dav: new FakeDav([]),
+      progress,
+    })
+    expect(plan.actions.map(({ type, path }) => [type, path])).toEqual([
+      ["remove-local", "target.txt"],
+    ])
+
+    await executeSyncPlan(plan, { dav: new FakeDav([]), progress })
+    await expect(stat(target)).rejects.toMatchObject({ code: "ENOENT" })
+    expect(await readFile(join(root, "sibling.txt"), "utf8")).toBe("sibling")
+  })
+
+  test("scaffold rejects local and remote-only file targets", async () => {
+    const root = await makeTempDirectory()
+    const localTarget = join(root, "local.txt")
+    await writeFile(localTarget, "local")
+
+    await expect(buildSyncPlan({
+      command: "scaffold",
+      scope: { root, target: localTarget, relativePath: "local.txt" },
+      dav: new FakeDav([]),
+      progress,
+    })).rejects.toThrow("Scaffold target is not a folder")
+
+    const remoteTarget = join(root, "remote.txt")
+    await expect(buildSyncPlan({
+      command: "scaffold",
+      scope: { root, target: remoteTarget, relativePath: "remote.txt" },
+      dav: new FakeDav([remoteFile("remote.txt", "remote")]),
+      progress,
+    })).rejects.toThrow("Scaffold target is not a folder")
+  })
+
   test("pull treats remote as authoritative", async () => {
     const root = await makeTempDirectory()
     await writeFile(join(root, "local-only.txt"), "local")
@@ -249,6 +392,126 @@ describe("sync planner", () => {
     expect((await stat(join(root, "a", "b"))).isDirectory()).toBe(true)
     await expect(stat(join(root, "a", "b", "file.txt"))).rejects.toMatchObject({ code: "ENOENT" })
     await expect(stat(join(root, "a", ".fcksignore"))).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  test("rm removes an existing file from both local and remote", async () => {
+    const root = await makeTempDirectory()
+    const target = join(root, "notes.txt")
+    await writeFile(target, "local")
+    const remote = new FakeDav([remoteFile("notes.txt", "remote")])
+
+    const plan = await buildSyncPlan({
+      command: "rm",
+      scope: { root, target, relativePath: "notes.txt" },
+      dav: remote,
+      progress,
+    })
+
+    expect(plan.actions.map(({ type, path }) => [type, path])).toEqual([
+      ["remove-local", "notes.txt"],
+      ["remove-remote", "notes.txt"],
+    ])
+    await executeSyncPlan(plan, { dav: remote, progress })
+    await expect(stat(target)).rejects.toMatchObject({ code: "ENOENT" })
+    expect(remote.deleted).toEqual(["notes.txt"])
+  })
+
+  test("rm checks and recursively removes a remote directory when the local path is missing", async () => {
+    const root = await makeTempDirectory()
+    const target = join(root, "archive")
+    const remote = new FakeDav([
+      remoteDirectory("archive"),
+      remoteDirectory("archive/nested"),
+      remoteFile("archive/nested/one.txt", "one"),
+      remoteFile("archive/two.txt", "two"),
+    ])
+
+    const plan = await buildSyncPlan({
+      command: "rm",
+      scope: { root, target, relativePath: "archive" },
+      dav: remote,
+      progress,
+    })
+
+    expect(plan.local.exists).toBe(false)
+    expect(plan.actions.map(({ type, path }) => [type, path])).toEqual([
+      ["remove-remote-directory", "archive"],
+    ])
+    expect(plan.remote.files.size).toBe(2)
+    await executeSyncPlan(plan, { dav: remote, progress })
+    expect(remote.deleted).toEqual(["archive"])
+  })
+
+  test("rm recursively removes a local directory", async () => {
+    const root = await makeTempDirectory()
+    const target = join(root, "archive")
+    await mkdir(join(target, "nested"), { recursive: true })
+    await writeFile(join(target, "nested", "one.txt"), "one")
+    const remote = new FakeDav([])
+
+    const plan = await buildSyncPlan({
+      command: "rm",
+      scope: { root, target, relativePath: "archive" },
+      dav: remote,
+      progress,
+    })
+
+    expect(plan.actions.map(({ type, path }) => [type, path])).toEqual([
+      ["remove-local-directory", "archive"],
+    ])
+    await executeSyncPlan(plan, { dav: remote, progress })
+    await expect(stat(target)).rejects.toMatchObject({ code: "ENOENT" })
+  })
+
+  test("rm is a no-op when the path is absent locally and remotely", async () => {
+    const root = await makeTempDirectory()
+    const target = join(root, "missing")
+    const plan = await buildSyncPlan({
+      command: "rm",
+      scope: { root, target, relativePath: "missing" },
+      dav: new FakeDav([]),
+      progress,
+    })
+
+    expect(plan.actions).toEqual([])
+  })
+
+  test("rm requires confirmation unless force mode is enabled", async () => {
+    const root = await makeTempDirectory()
+    const cancelledTarget = join(root, "cancelled.txt")
+    await writeFile(cancelledTarget, "keep")
+    const cancelledRemote = new FakeDav([remoteFile("cancelled.txt", "keep")])
+    let confirmations = 0
+
+    const cancelled = await syncFolder({ command: "rm", path: cancelledTarget }, { localFolder: root }, {
+      dav: cancelledRemote,
+      progress,
+      output: { log() {} },
+      confirm: async () => {
+        confirmations += 1
+        return false
+      },
+    })
+
+    expect(cancelled.cancelled).toBe(true)
+    expect(confirmations).toBe(1)
+    expect((await stat(cancelledTarget)).isFile()).toBe(true)
+    expect(cancelledRemote.deleted).toEqual([])
+
+    const forcedTarget = join(root, "forced.txt")
+    await writeFile(forcedTarget, "remove")
+    const forcedRemote = new FakeDav([remoteFile("forced.txt", "remove")])
+    await syncFolder({ command: "rm", path: forcedTarget, force: true }, { localFolder: root }, {
+      dav: forcedRemote,
+      progress,
+      output: { log() {} },
+      confirm: async () => {
+        throw new Error("force mode must skip confirmation")
+      },
+    })
+
+    await expect(stat(forcedTarget)).rejects.toMatchObject({ code: "ENOENT" })
+    expect(forcedRemote.deleted).toEqual(["forced.txt"])
   })
 
   test("previews approximate upload, download, and freed sizes", () => {
@@ -378,6 +641,17 @@ class FakeDav {
   }
   async list() {
     return this.entries
+  }
+  async stat(path) {
+    const normalized = path === "/" ? "" : path
+    const entry = this.entries.find((candidate) => candidate.filename === `/remote/${normalized}`)
+    if (entry) return entry
+    if (!normalized || this.entries.some((candidate) => candidate.filename.startsWith(`/remote/${normalized}/`))) {
+      return remoteDirectory(normalized)
+    }
+    const error = new Error("not found")
+    error.status = 404
+    throw error
   }
   async hashLocalFile(path, algorithm) {
     return createHash(algorithm).update(await readFile(path)).digest("hex")

@@ -1,5 +1,5 @@
 import { opendir } from "node:fs/promises"
-import { lstat, mkdir, rm, stat, utimes } from "node:fs/promises"
+import { lstat, mkdir, rm, utimes } from "node:fs/promises"
 import { dirname, join, posix, relative, sep } from "node:path"
 import { createInterface } from "node:readline/promises"
 
@@ -107,14 +107,20 @@ async function syncFolderOperation(target, config, dependencies, abortController
 }
 
 export async function buildSyncPlan({ command, scope, dav, progress = new NullProgress(), signal }) {
-  if (!["push", "pull", "merge", "scaffold", "free"].includes(command)) {
+  if (!["push", "pull", "merge", "scaffold", "free", "rm"].includes(command)) {
     throw new Error(`Unknown sync command: ${command}`)
   }
+
+  if (command === "rm") return buildRemovePlan({ scope, dav, progress, signal })
 
   progress.update("Scanning local files", 0, null)
   throwIfAborted(signal)
   let local = await scanLocalTree(scope.root, scope.target, (count) => progress.update("Scanning local files", count, null), signal)
   progress.finish("Scanning local files", local.files.size)
+
+  if (command === "scaffold" && local.exists && !local.isDirectory) {
+    throw new Error(`Scaffold target is not a folder: ${scope.target}`)
+  }
 
   if (command === "free") {
     return {
@@ -131,6 +137,10 @@ export async function buildSyncPlan({ command, scope, dav, progress = new NullPr
   throwIfAborted(signal)
   let remote = await scanRemoteTree(dav, scope.relativePath, signal)
   progress.finish("Reading remote files", remote.files.size)
+
+  if (command === "scaffold" && remote.exists && !remote.isDirectory) {
+    throw new Error(`Scaffold target is not a folder: ${scope.target}`)
+  }
 
   if (command === "push" || command === "merge") {
     const filtered = await applyIgnoreFiles({ local, remote, dav, signal })
@@ -231,6 +241,25 @@ export async function buildSyncPlan({ command, scope, dav, progress = new NullPr
   }
 
   return { command, scope, local, remote, actions, remoteFileCount: remote.files.size }
+}
+
+async function buildRemovePlan({ scope, dav, progress, signal }) {
+  progress.update("Checking local path", 0, null)
+  const local = await scanLocalRemovalTarget(scope.root, scope.target, signal)
+  progress.finish("Checking local path", local.exists ? 1 : 0)
+
+  progress.update("Checking remote path", 0, null)
+  const remote = await scanRemoteRemovalTarget(dav, scope.relativePath, signal)
+  progress.finish("Checking remote path", remote.exists ? 1 : 0)
+
+  const actions = []
+  if (local.exists) {
+    actions.push(action(local.isDirectory ? "remove-local-directory" : "remove-local", scope.relativePath, local.target))
+  }
+  if (remote.exists) {
+    actions.push(action(remote.isDirectory ? "remove-remote-directory" : "remove-remote", scope.relativePath, remote.target))
+  }
+  return { command: "rm", scope, local, remote, actions, remoteFileCount: remote.files.size }
 }
 
 export async function executeSyncPlan(plan, { dav, progress = new NullProgress(), signal }) {
@@ -344,7 +373,7 @@ async function executeAction(item, plan, dav, onProgress, signal) {
   } catch (error) {
     if (isAbortError(error)) throw error
     const message = error instanceof Error ? error.message : String(error)
-    throw new Error(`Failed to ${actionDescription(item.type)} ${JSON.stringify(item.path || ".")}: ${message}`, { cause: error })
+    throw new Error(`Failed to ${actionDescription(item.type, plan.command)} ${JSON.stringify(item.path || ".")}: ${message}`, { cause: error })
   }
 }
 
@@ -353,11 +382,13 @@ export function printSyncPlan(plan, output = console) {
   if (plan.command === "free") output.log("Warning: run merge first if local changes have not been uploaded.")
   if (plan.command === "scaffold") output.log(`Remote contains ${plan.remoteFileCount} file${plan.remoteFileCount === 1 ? "" : "s"}; missing folders will be created without changing local files.`)
   if (plan.actions.length === 0) {
-    output.log("Already up to date; no changes are needed.")
+    output.log(plan.command === "rm"
+      ? "Path does not exist locally or remotely; no changes are needed."
+      : "Already up to date; no changes are needed.")
     return
   }
   for (const item of plan.actions) {
-    output.log(`${actionMarker(item.type)} ${actionDescription(item.type).padEnd(25)} ${JSON.stringify(item.path || ".")}${item.reason ? ` — ${item.reason}` : ""}`)
+    output.log(`${actionMarker(item.type)} ${actionDescription(item.type, plan.command).padEnd(25)} ${JSON.stringify(item.path || ".")}${item.reason ? ` — ${item.reason}` : ""}`)
   }
   const sizeEstimate = formatPlanSizeEstimate(plan)
   if (sizeEstimate) output.log(`Estimated size: ${sizeEstimate}.`)
@@ -369,11 +400,65 @@ export async function confirmSync(plan, signal) {
   if (!process.stdin.isTTY || !process.stdout.isTTY) throw new Error("Confirmation needs an interactive terminal; use -f to approve all operations.")
   const interface_ = createInterface({ input: process.stdin, output: process.stdout })
   try {
-    const warning = plan.command === "free" ? " This removes every local file in the selected folder." : ""
+    const warning = plan.command === "free"
+      ? plan.local.isDirectory
+        ? " This removes every local file in the selected folder."
+        : " This removes the selected local file."
+      : plan.command === "rm"
+        ? " This removes the selected path locally and remotely."
+        : ""
     const answer = (await interface_.question(`Proceed with all listed operations?${warning} (y/N) `, { signal })).trim().toLowerCase()
     return ["y", "yes", "a", "all"].includes(answer)
   } finally {
     interface_.close()
+  }
+}
+
+async function scanLocalRemovalTarget(root, target, signal) {
+  throwIfAborted(signal)
+  const files = new Map()
+  const dirs = new Set()
+  let targetDetails
+  try {
+    targetDetails = await lstat(target)
+  } catch (error) {
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return { files, dirs, exists: false, isDirectory: false, target: null }
+    }
+    throw error
+  }
+
+  const targetPath = portableRelative(root, target)
+  if (!targetDetails.isDirectory()) {
+    const details = { path: targetPath, absolute: target, size: targetDetails.size, mtimeMs: targetDetails.mtimeMs, hashes: new Map() }
+    files.set(targetPath, details)
+    return { files, dirs, exists: true, isDirectory: false, target: details }
+  }
+
+  async function visit(directory) {
+    throwIfAborted(signal)
+    const handle = await opendir(directory)
+    for await (const entry of handle) {
+      throwIfAborted(signal)
+      const absolute = join(directory, entry.name)
+      const path = portableRelative(root, absolute)
+      if (entry.isDirectory()) {
+        dirs.add(path)
+        await visit(absolute)
+      } else {
+        const details = await lstat(absolute)
+        files.set(path, { path, absolute, size: details.size, mtimeMs: details.mtimeMs, hashes: new Map() })
+      }
+    }
+  }
+  await visit(target)
+  dirs.add(targetPath)
+  return {
+    files,
+    dirs,
+    exists: true,
+    isDirectory: true,
+    target: { path: targetPath, absolute: target, size: 0, mtimeMs: targetDetails.mtimeMs },
   }
 }
 
@@ -383,12 +468,21 @@ async function scanLocalTree(root, target, onEntry, signal) {
   const dirs = new Set()
   let targetStat
   try {
-    targetStat = await stat(target)
+    targetStat = await lstat(target)
   } catch (error) {
-    if (error instanceof Error && "code" in error && error.code === "ENOENT") return { files, dirs, exists: false }
+    if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+      return { files, dirs, exists: false, isDirectory: null }
+    }
     throw error
   }
-  if (!targetStat.isDirectory()) throw new Error(`Sync target is not a folder: ${target}`)
+  if (targetStat.isSymbolicLink()) throw new Error(`Symbolic links are not supported: ${target}`)
+  if (targetStat.isFile()) {
+    const path = portableRelative(root, target)
+    files.set(path, { path, absolute: target, size: targetStat.size, mtimeMs: targetStat.mtimeMs, hashes: new Map() })
+    onEntry?.(1)
+    return { files, dirs, exists: true, isDirectory: false }
+  }
+  if (!targetStat.isDirectory()) throw new Error(`Unsupported filesystem entry: ${target}`)
 
   let count = 0
   async function visit(directory) {
@@ -413,18 +507,41 @@ async function scanLocalTree(root, target, onEntry, signal) {
     }
   }
   await visit(target)
-  return { files, dirs, exists: true }
+  const targetPath = portableRelative(root, target)
+  if (targetPath) dirs.add(targetPath)
+  return { files, dirs, exists: true, isDirectory: true }
 }
 
-async function scanRemoteTree(dav, scopePath, signal) {
+async function scanRemoteTree(dav, scopePath, signal, knownTarget = null) {
   throwIfAborted(signal)
   const files = new Map()
   const dirs = new Set()
+  let target = knownTarget
+  if (!target) {
+    try {
+      target = await dav.stat(scopePath || "/", signal)
+    } catch (error) {
+      if (isNotFound(error)) return { files, dirs, exists: false, isDirectory: null }
+      throw error
+    }
+  }
+
+  if (target.type !== "directory") {
+    const path = scopePath
+    files.set(path, {
+      path,
+      size: Number(target.size) || 0,
+      mtimeMs: validDateMilliseconds(target.lastmod),
+      etag: target.etag ?? null,
+    })
+    return { files, dirs, exists: true, isDirectory: false }
+  }
+
   let entries
   try {
     entries = await dav.list(scopePath || "/", true, signal)
   } catch (error) {
-    if (isNotFound(error)) return { files, dirs }
+    if (isNotFound(error)) return { files, dirs, exists: false, isDirectory: null }
     throw error
   }
   for (const entry of entries) {
@@ -440,7 +557,39 @@ async function scanRemoteTree(dav, scopePath, signal) {
   // Some DAV servers omit collection entries from a deep listing. Infer
   // parent directories from file paths so shape-conflict planning stays safe.
   for (const path of impliedDirectories(files.keys(), scopePath)) dirs.add(path)
-  return { files, dirs }
+  if (scopePath) dirs.add(scopePath)
+  return { files, dirs, exists: true, isDirectory: true }
+}
+
+async function scanRemoteRemovalTarget(dav, scopePath, signal) {
+  throwIfAborted(signal)
+  const files = new Map()
+  const dirs = new Set()
+  let details
+  try {
+    details = await dav.stat(scopePath || "/", signal)
+  } catch (error) {
+    if (isNotFound(error)) return { files, dirs, exists: false, isDirectory: false, target: null }
+    throw error
+  }
+
+  const isDirectory = details.type === "directory"
+  const target = {
+    path: scopePath,
+    size: Number(details.size) || 0,
+    mtimeMs: validDateMilliseconds(details.lastmod),
+    etag: details.etag ?? null,
+  }
+  if (!isDirectory) {
+    files.set(scopePath, target)
+    return { files, dirs, exists: true, isDirectory: false, target }
+  }
+
+  const tree = await scanRemoteTree(dav, scopePath, signal, details)
+  dirs.add(scopePath)
+  for (const path of tree.dirs) dirs.add(path)
+  for (const [path, file] of tree.files) files.set(path, file)
+  return { files, dirs, exists: true, isDirectory: true, target }
 }
 
 async function filesMatch(local, remote, dav, path, onProgress, signal) {
@@ -519,12 +668,12 @@ function actionMarker(type) {
   if (type === "conflict") return "!"
   return "~"
 }
-function actionDescription(type) {
+function actionDescription(type, command) {
   return ({
     "remove-local": "remove local file",
-    "remove-local-directory": "replace local directory",
+    "remove-local-directory": command === "rm" ? "remove local directory" : "replace local directory",
     "remove-remote": "remove remote file",
-    "remove-remote-directory": "replace remote directory",
+    "remove-remote-directory": command === "rm" ? "remove remote directory" : "replace remote directory",
     "create-local-directory": "create local directory",
     "upload-add": "add to remote",
     "upload-update": "update remote",

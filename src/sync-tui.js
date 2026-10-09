@@ -202,14 +202,16 @@ export async function runSyncTui({ command, scope, buildPlan, executePlan, inter
       if (plan.actions.length === 0) {
         state = "unchanged"
         status.fg = colors.success
-        status.content = command === "scaffold"
+        status.content = command === "rm"
+          ? "Path does not exist locally or remotely; no changes are needed."
+          : command === "scaffold"
           ? `Remote contains ${plan.remoteFileCount} file${plan.remoteFileCount === 1 ? "" : "s"}; required folders already exist.`
           : "Already up to date; no changes are needed."
         footer.content = "Enter or Esc close"
         return
       }
 
-      changes.options = plan.actions.map(actionOption)
+      changes.options = plan.actions.map((item) => actionOption(item, command))
       changes.visible = true
       changes.focus()
       if (actionable.length === 0) {
@@ -223,6 +225,9 @@ export async function runSyncTui({ command, scope, buildPlan, executePlan, inter
         if (command === "free") {
           status.fg = colors.warning
           status.content = `Run merge first for safety. ${actionable.length} local file${actionable.length === 1 ? "" : "s"} will be removed.`
+        } else if (command === "rm") {
+          status.fg = colors.danger
+          status.content = `The selected path will be removed from ${actionable.length === 2 ? "local and remote storage" : actionable[0].type.includes("remote") ? "remote storage" : "local storage"}.`
         } else if (command === "scaffold") {
           status.content = `Remote contains ${plan.remoteFileCount} file${plan.remoteFileCount === 1 ? "" : "s"}; local files stay unchanged.`
         } else {
@@ -242,9 +247,9 @@ export async function runSyncTui({ command, scope, buildPlan, executePlan, inter
   })
 }
 
-function actionOption(item) {
+function actionOption(item, command) {
   return {
-    name: `${item.type === "conflict" ? "!" : actionMarker(item.type)} ${actionLabel(item.type)}  ${JSON.stringify(item.path || ".")}`,
+    name: `${item.type === "conflict" ? "!" : actionMarker(item.type)} ${actionLabel(item.type, command)}  ${JSON.stringify(item.path || ".")}`,
     description: item.reason || actionDirection(item.type),
   }
 }
@@ -255,12 +260,12 @@ function actionMarker(type) {
   return "~"
 }
 
-function actionLabel(type) {
+function actionLabel(type, command) {
   return ({
     "remove-local": "remove local file",
-    "remove-local-directory": "replace local directory",
+    "remove-local-directory": command === "rm" ? "remove local directory" : "replace local directory",
     "remove-remote": "remove remote file",
-    "remove-remote-directory": "replace remote directory",
+    "remove-remote-directory": command === "rm" ? "remove remote directory" : "replace remote directory",
     "create-local-directory": "create local directory",
     "upload-add": "add to remote",
     "upload-update": "update remote",

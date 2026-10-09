@@ -16,6 +16,7 @@ LOCAL ROOT                                  DAV ROOT
       fcks merge    = keep both sides; newest changed file wins
       fcks scaffold = copy remote folder structure, without files
       fcks free     = delete local files, but keep folders
+      fcks rm       = delete a path locally and remotely
 ```
 
 Features:
@@ -45,6 +46,7 @@ fcks pull [path]     # make the local subtree match remote
 fcks merge [path]    # copy both ways; newest changed file wins, never delete
 fcks scaffold [path] # recreate the remote folder structure locally
 fcks free [path]     # delete local files while retaining their folders
+fcks rm <path>       # delete a file/folder locally and remotely
 fcks ls [path]       # list shared, local-only, and remote-only entries
 fcks push -f .       # skip confirmation (`-f` works with every operation)
 fcks pull -s .       # select one remote child folder to pull
@@ -54,10 +56,12 @@ fcks push -s .       # select one local child folder to push
 Short aliases are available: `ph` for `push`, `pl` for `pull`, `sc` for
 `scaffold`, and `fr` for `free`.
 
-The path defaults to the current directory. A file path selects its parent
-folder. Every target must be the configured local root or a descendant; paths
-outside it are rejected. Symbolic-link entries are rejected because WebDAV
-cannot preserve their semantics safely. The relative path below
+The path defaults to the current directory for commands with an optional path.
+`rm` requires a path. `push`, `pull`, `merge`, `free`, and `rm` operate on an
+exact file or folder target; `scaffold` and `ls` require a folder. Every target
+must be the configured local root or a descendant; paths
+outside it are rejected. Synchronization rejects symbolic-link entries because
+WebDAV cannot preserve their semantics safely. The relative path below
 the configured local root is preserved below the configured DAV root. For
 example, local root `/foo` and DAV root `/bar` map
 `/foo/docs/file.txt` to `/bar/docs/file.txt`.
@@ -95,8 +99,13 @@ file-versus-directory conflicts are reported and left unchanged.
 - `scaffold` creates missing directories implied by remote files without modifying existing
 local files or folders. 
 
-- `free` prints a merge-first safety warning and removes
-all local files under the target without removing directories.
+- `free` prints a merge-first safety warning. For a folder target it removes
+all files below it without removing directories; for a file target it removes
+only that file.
+
+- `rm` checks the exact path on both sides and removes whichever copies exist.
+Remote directory deletion includes its complete subtree. A missing local copy
+does not prevent the remote copy from being found and removed.
 
 Hidden files and folders are included. Empty folders are ignored, like Git.
 

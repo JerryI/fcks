@@ -5,11 +5,8 @@ import { dirname, isAbsolute, relative, resolve, sep } from "node:path"
 export async function resolveSyncTarget(input, cwd = process.cwd(), options = {}) {
   const absolutePath = resolve(cwd, input)
   try {
-    const details = await stat(absolutePath)
-
-    return {
-      path: details.isDirectory() ? absolutePath : dirname(absolutePath),
-    }
+    await stat(absolutePath)
+    return { path: absolutePath }
   } catch (error) {
     if (options.allowMissing && error instanceof Error && "code" in error && error.code === "ENOENT") {
       return { path: absolutePath }

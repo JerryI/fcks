@@ -74,6 +74,27 @@ describe("combined folder listing", () => {
     expect(lines).toContain(`\x1b[1;36mlocal   \x1b[0m file               local.txt `)
     expect(lines).toContain(`\x1b[1;35mremote  \x1b[0m file               remote.txt`)
   })
+
+  test("rejects an exact local file target", async () => {
+    const root = await makeTempDirectory()
+    const file = join(root, "notes.txt")
+    await writeFile(file, "notes")
+
+    await expect(listFolder({ path: file }, { localFolder: root }, {
+      dav: new ListingDav([]),
+      output: { log() {} },
+    })).rejects.toThrow("List target is not a folder")
+  })
+
+  test("rejects an exact remote-only file target", async () => {
+    const root = await makeTempDirectory()
+    const file = join(root, "remote.txt")
+
+    await expect(listFolder({ path: file }, { localFolder: root }, {
+      dav: new ListingDav([remoteEntry("remote.txt", "file")]),
+      output: { log() {} },
+    })).rejects.toThrow("List target is not a folder")
+  })
 })
 
 class ListingDav {
@@ -88,6 +109,17 @@ class ListingDav {
     this.listedPath = path
     const requested = this.resolvePath(path)
     return this.entries.filter((entry) => posix.dirname(entry.filename) === requested)
+  }
+  async stat(path) {
+    const requested = this.resolvePath(path)
+    if (requested === this.rootFolder || this.entries.some((entry) => entry.filename.startsWith(`${requested}/`))) {
+      return remoteEntry(requested.slice(`${this.rootFolder}/`.length), "directory")
+    }
+    const entry = this.entries.find((candidate) => candidate.filename === requested)
+    if (entry) return entry
+    const error = new Error("not found")
+    error.status = 404
+    throw error
   }
 }
 

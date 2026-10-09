@@ -1,4 +1,4 @@
-import { opendir } from "node:fs/promises"
+import { opendir, stat } from "node:fs/promises"
 import { posix } from "node:path"
 
 import { DavClient } from "./dav.js"
@@ -49,19 +49,33 @@ function supportsColor() {
 
 async function readLocalDirectory(path) {
   const entries = new Map()
-  let directory
+  let details
   try {
-    directory = await opendir(path)
+    details = await stat(path)
   } catch (error) {
     if (isNotFound(error)) return entries
     throw error
   }
+  if (!details.isDirectory()) throw new Error(`List target is not a folder: ${path}`)
+
+  const directory = await opendir(path)
   for await (const entry of directory) entries.set(entry.name, localType(entry))
   return entries
 }
 
 async function readRemoteDirectory(dav, scopePath) {
   const entries = new Map()
+  let target
+  try {
+    target = await dav.stat(scopePath || "/")
+  } catch (error) {
+    if (isNotFound(error)) return entries
+    throw error
+  }
+  if (target.type !== "directory") {
+    throw new Error(`List target is not a folder: ${scopePath || "."}`)
+  }
+
   let contents
   try {
     contents = await dav.list(scopePath || "/", false)

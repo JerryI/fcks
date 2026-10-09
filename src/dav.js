@@ -45,8 +45,8 @@ export class DavClient {
     return this.client.getDirectoryContents(this.resolvePath(path), { deep, signal })
   }
 
-  async stat(path = "/") {
-    return this.client.stat(this.resolvePath(path))
+  async stat(path = "/", signal) {
+    return this.client.stat(this.resolvePath(path), { signal })
   }
 
   async exists(path) {

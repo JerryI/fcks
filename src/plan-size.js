@@ -50,7 +50,7 @@ function sumRemovalSizes(actions, files = new Map()) {
   for (const item of actions) {
     if (item.type.endsWith("-directory")) {
       for (const path of files.keys()) {
-        if (path === item.path || path.startsWith(`${item.path}/`)) paths.add(path)
+        if (!item.path || path === item.path || path.startsWith(`${item.path}/`)) paths.add(path)
       }
     } else if (files.has(item.path)) {
       paths.add(item.path)

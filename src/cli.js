@@ -52,7 +52,7 @@ export async function main(args = Bun.argv.slice(2)) {
   }
 
   try {
-    const allowMissing = ["pull", "merge", "scaffold", "ls"].includes(invocation.command)
+    const allowMissing = ["pull", "merge", "scaffold", "ls", "rm"].includes(invocation.command)
     let resolved = await resolveSyncTarget(invocation.path, process.cwd(), { allowMissing })
     if (invocation.select) {
       const selectedPath = await selectSyncChild({ ...resolved, command: invocation.command }, config)
@@ -75,7 +75,7 @@ export async function main(args = Bun.argv.slice(2)) {
 }
 
 export function parseInvocation(args) {
-  const commands = new Set(["push", "pull", "merge", "scaffold", "free", "ls"])
+  const commands = new Set(["push", "pull", "merge", "scaffold", "free", "ls", "rm"])
   const aliases = new Map([
     ["ph", "push"],
     ["pl", "pull"],
@@ -109,6 +109,9 @@ export function parseInvocation(args) {
   if (rest.some((argument) => argument.startsWith("-")) || rest.length > 1) {
     throw new Error("Expected one local folder or file path, with a single flag before it. Run fcks --help for usage.")
   }
+  if (command === "rm" && rest.length === 0) {
+    throw new Error("The rm command requires a file or folder path. Run fcks --help for usage.")
+  }
   return { command, force, select, path: rest[0] ?? "." }
 }
 
@@ -124,6 +127,7 @@ Commands:
   fcks pull [path]    Make local files match remote files
   fcks scaffold [path] Recreate the remote folder structure locally
   fcks free [path]    Remove local files but preserve their folders
+  fcks rm <path>      Remove a file or folder locally and remotely
   fcks ls [path]      List local, remote-only, and shared folder entries
   Aliases: ph=push, pl=pull, sc=scaffold, fr=free
   fcks <command> -f   Approve all changes without prompting
@@ -131,8 +135,9 @@ Commands:
   fcks push -s [path] Select a local child folder to push
   fcks --help         Show this help
 
-Paths default to the current directory and must be inside the configured local
-folder. Hidden files and folders are included; empty folders are not synced.
+Optional paths default to the current directory; rm requires an explicit path.
+Paths must be inside the configured local folder. Hidden files and folders are
+included; empty folders are not synced.
 The -f and -s flags cannot be combined.
 
 DAV server:  ${config?.serverUrl ?? "not configured"}

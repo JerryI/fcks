@@ -19,11 +19,18 @@ describe("local sync target", () => {
     expect(await resolveSyncTarget("folder", directory)).toEqual({ path: child })
   })
 
-  test("turns a file path into its parent directory", async () => {
+  test("keeps an exact file path", async () => {
     const directory = await makeTempDirectory()
     const file = join(directory, "notes.txt")
     await writeFile(file, "hello")
-    expect(await resolveSyncTarget(file)).toEqual({ path: directory })
+    expect(await resolveSyncTarget(file)).toEqual({ path: file })
+  })
+
+  test("allows an exact missing path when requested", async () => {
+    const directory = await makeTempDirectory()
+    const missing = join(directory, "missing")
+
+    expect(await resolveSyncTarget(missing, directory, { allowMissing: true })).toEqual({ path: missing })
   })
 
   test("rejects a missing target", async () => {
