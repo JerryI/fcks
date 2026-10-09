@@ -20,6 +20,21 @@ export async function listFolder(target, config, dependencies = {}) {
     readRemoteDirectory(dav, scope.relativePath),
   ])
   const entries = mergeEntries(local, remote)
+
+  const useTui = dependencies.useTui ?? (
+    process.stdin.isTTY &&
+    process.stdout.isTTY &&
+    dependencies.output === undefined
+  )
+  if (useTui) {
+    const renderListing = dependencies.renderListing ?? (await import("./listing-tui.js")).runListingTui
+    await renderListing({
+      path: scope.target,
+      entries: entries.map((entry) => ({ ...entry, displayName: displayName(entry) })),
+    })
+    return entries
+  }
+
   const output = dependencies.output ?? console
   const useColor = dependencies.color ?? supportsColor()
 

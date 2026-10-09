@@ -54,6 +54,41 @@ describe("combined folder listing", () => {
     expect(entries.map((entry) => entry.name)).toEqual(["remote.txt"])
   })
 
+  test("uses the interactive listing renderer when requested", async () => {
+    const root = await makeTempDirectory()
+    await writeFile(join(root, "local.txt"), "local")
+    const renders = []
+
+    const entries = await listFolder({ path: root }, { localFolder: root }, {
+      dav: new ListingDav([remoteEntry("remote-folder", "directory")]),
+      useTui: true,
+      renderListing: async (listing) => renders.push(listing),
+    })
+
+    expect(renders).toHaveLength(1)
+    expect(renders[0].path).toBe(root)
+    expect(renders[0].entries).toEqual([
+      expect.objectContaining({ name: "local.txt", source: "local", displayName: "local.txt" }),
+      expect.objectContaining({ name: "remote-folder", source: "remote", displayName: "remote-folder/" }),
+    ])
+    expect(entries.map((entry) => entry.name)).toEqual(["local.txt", "remote-folder"])
+  })
+
+  test("keeps text output when the interactive renderer is disabled", async () => {
+    const root = await makeTempDirectory()
+    await writeFile(join(root, "local.txt"), "local")
+    const lines = []
+
+    await listFolder({ path: root }, { localFolder: root }, {
+      dav: new ListingDav([]),
+      useTui: false,
+      output: { log: (line) => lines.push(line) },
+    })
+
+    expect(lines[0]).toBe(`Listing ${root}`)
+    expect(lines.join("\n")).toContain("local.txt")
+  })
+
   test("colors each source while preserving the table width", async () => {
     const root = await makeTempDirectory()
     await writeFile(join(root, "both.txt"), "local")

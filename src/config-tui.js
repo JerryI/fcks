@@ -16,10 +16,10 @@ import { resolveConfiguredLocalFolder } from "./target.js"
 const colors = {
   background: "#08111d",
   panel: "#101c2b",
-  border: "#3c82f6",
+  border: "#c45f2a",
   text: "#e5eefb",
   muted: "#91a4bd",
-  accent: "#5eead4",
+  accent: "#ee7a35",
   danger: "#fb7185",
   input: "#17263a",
 }

@@ -9,10 +9,10 @@ import {
 const colors = {
   background: "#08111d",
   panel: "#101c2b",
-  border: "#3c82f6",
+  border: "#c45f2a",
   text: "#e5eefb",
   muted: "#91a4bd",
-  accent: "#5eead4",
+  accent: "#ee7a35",
 }
 
 /** Open a single-level folder picker and return the selected folder name. */

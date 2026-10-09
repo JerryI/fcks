@@ -79,6 +79,9 @@ only available for `pull` and `push`, and cannot be combined with `-f`.
 
 In an interactive terminal, regular sync commands use OpenTUI for the same
 simple flow: scan, review the complete plan, confirm once, and watch progress.
+`ls` also uses an OpenTUI browser for its combined local and remote listing.
+When terminal interaction is unavailable, it falls back to a plain text table
+that can be redirected or piped.
 
 Press `Esc` or `Ctrl+C` to interrupt planning or execution. No new work is
 started, active hashes and transfers are aborted, and the result reports how

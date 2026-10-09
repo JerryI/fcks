@@ -1,6 +1,7 @@
 import {
   BoxRenderable,
   SelectRenderable,
+  TextAttributes,
   TextRenderable,
   createCliRenderer,
 } from "@opentui/core"
@@ -10,13 +11,16 @@ import { formatPlanSizeEstimate } from "./plan-size.js"
 const colors = {
   background: "#08111d",
   panel: "#101c2b",
-  border: "#3c82f6",
+  border: "#c45f2a",
   text: "#e5eefb",
   muted: "#91a4bd",
-  accent: "#5eead4",
+  accent: "#ee7a35",
   danger: "#fb7185",
   warning: "#fbbf24",
   success: "#86efac",
+  dangerPanel: "#321622",
+  warningPanel: "#302713",
+  successPanel: "#10291e",
 }
 
 /** Render the existing plan → confirm → execute flow in OpenTUI. */
@@ -64,6 +68,18 @@ export async function runSyncTui({ command, scope, buildPlan, executePlan, inter
       content: "Please wait…",
       fg: colors.muted,
     })
+    const statusPanel = new BoxRenderable(renderer, {
+      width: "100%",
+      minHeight: 3,
+      backgroundColor: colors.panel,
+      border: true,
+      borderColor: colors.muted,
+      title: "STATUS",
+      titleColor: colors.muted,
+      paddingLeft: 1,
+      paddingRight: 1,
+    })
+    statusPanel.add(status)
     const footer = new TextRenderable(renderer, {
       content: "",
       fg: colors.muted,
@@ -80,9 +96,29 @@ export async function runSyncTui({ command, scope, buildPlan, executePlan, inter
     screen.add(summary)
     screen.add(progress)
     screen.add(changes)
-    screen.add(status)
+    screen.add(statusPanel)
     screen.add(footer)
     renderer.root.add(screen)
+
+    const showTerminalState = (kind, closePrompt = "Enter or Esc close") => {
+      const style = {
+        done: { title: "✓ FINISHED", color: colors.success, background: colors.successPanel },
+        unchanged: { title: "✓ FINISHED", color: colors.success, background: colors.successPanel },
+        interrupted: { title: "■ INTERRUPTED", color: colors.warning, background: colors.warningPanel },
+        error: { title: "✕ FAILED", color: colors.danger, background: colors.dangerPanel },
+      }[kind]
+      summary.fg = style.color
+      summary.attributes = TextAttributes.BOLD
+      statusPanel.backgroundColor = style.background
+      statusPanel.borderColor = style.color
+      statusPanel.title = style.title
+      statusPanel.titleColor = style.color
+      status.fg = style.color
+      status.attributes = TextAttributes.BOLD
+      footer.fg = style.color
+      footer.attributes = TextAttributes.BOLD
+      footer.content = `${style.title} · ${closePrompt}`
+    }
 
     let state = "planning"
     let plan = null
@@ -136,21 +172,19 @@ export async function runSyncTui({ command, scope, buildPlan, executePlan, inter
         process.stdout.write("\x07")
         state = "done"
         summary.content = `${command.toUpperCase()} completed.`
-        status.fg = colors.success
         status.content = `${completed} operation${completed === 1 ? "" : "s"} completed.`
-        footer.content = "Enter or Esc close"
+        showTerminalState("done")
       } catch (error) {
         completed = error.completedOperations ?? 0
         state = isAbortError(error) ? "interrupted" : "error"
         resultError = error
         summary.content = isAbortError(error) ? `${command.toUpperCase()} interrupted.` : `${command.toUpperCase()} stopped.`
-        status.fg = isAbortError(error) ? colors.warning : colors.danger
         status.content = isAbortError(error)
           ? completed > 0
             ? `${completed} operation${completed === 1 ? "" : "s"} completed before interruption; those changes were kept.`
             : "No operations completed."
           : `${errorMessage(error)}${completed > 0 ? ` ${completed} operation${completed === 1 ? "" : "s"} completed before the failure.` : ""}`
-        footer.content = "Enter or Esc close"
+        showTerminalState(state)
       }
     }
 
@@ -201,13 +235,12 @@ export async function runSyncTui({ command, scope, buildPlan, executePlan, inter
 
       if (plan.actions.length === 0) {
         state = "unchanged"
-        status.fg = colors.success
         status.content = command === "rm"
           ? "Path does not exist locally or remotely; no changes are needed."
           : command === "scaffold"
           ? `Remote contains ${plan.remoteFileCount} file${plan.remoteFileCount === 1 ? "" : "s"}; required folders already exist.`
           : "Already up to date; no changes are needed."
-        footer.content = "Enter or Esc close"
+        showTerminalState("unchanged")
         return
       }
 
@@ -219,7 +252,7 @@ export async function runSyncTui({ command, scope, buildPlan, executePlan, inter
         status.content = command === "scaffold"
           ? `Remote contains ${plan.remoteFileCount} file${plan.remoteFileCount === 1 ? "" : "s"}; ${conflicts} folder conflict${conflicts === 1 ? " was" : "s were"} left unchanged.`
           : `${conflicts} conflict${conflicts === 1 ? " was" : "s were"} left unchanged.`
-        footer.content = "↑↓ inspect · Enter or Esc close"
+        showTerminalState("unchanged", "↑↓ inspect · Enter or Esc close")
       } else {
         state = "review"
         if (command === "free") {
@@ -240,9 +273,8 @@ export async function runSyncTui({ command, scope, buildPlan, executePlan, inter
       state = isAbortError(error) ? "interrupted" : "error"
       resultError = error
       summary.content = isAbortError(error) ? `${command.toUpperCase()} interrupted.` : `${command.toUpperCase()} could not prepare a plan.`
-      status.fg = isAbortError(error) ? colors.warning : colors.danger
       status.content = isAbortError(error) ? "No operations were started." : errorMessage(error)
-      footer.content = "Enter or Esc close"
+      showTerminalState(state)
     })
   })
 }
