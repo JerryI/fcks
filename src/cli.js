@@ -2,6 +2,7 @@
 
 import { getConfigPath, loadConfig, resetConfig } from "./config.js"
 import { selectSyncChild } from "./folder-selection.js"
+import { findEntries } from "./finding.js"
 import { listFolder } from "./listing.js"
 import { syncFolder } from "./sync.js"
 import { resolveSyncTarget } from "./target.js"
@@ -63,6 +64,7 @@ export async function main(args = Bun.argv.slice(2)) {
       resolved = { path: selectedPath }
     }
     if (invocation.command === "ls") await listFolder(resolved, config)
+    else if (invocation.command === "find") await findEntries(resolved, invocation.patterns, config)
     else {
       const result = await syncFolder({ ...resolved, command: invocation.command, force: invocation.force }, config)
       if (result?.interrupted) return 130
@@ -75,7 +77,7 @@ export async function main(args = Bun.argv.slice(2)) {
 }
 
 export function parseInvocation(args) {
-  const commands = new Set(["push", "pull", "merge", "scaffold", "free", "ls", "rm"])
+  const commands = new Set(["push", "pull", "merge", "scaffold", "free", "ls", "find", "rm"])
   const aliases = new Map([
     ["ph", "push"],
     ["pl", "pull"],
@@ -86,6 +88,17 @@ export function parseInvocation(args) {
   let rest = [...args]
   if (commands.has(rest[0])) command = rest.shift()
   else if (aliases.has(rest[0])) command = aliases.get(rest.shift())
+
+  if (command === "find") {
+    if (rest[0] === "--") rest.shift()
+    if (rest.length === 0) {
+      throw new Error("The find command requires at least one pattern. Run fcks --help for usage.")
+    }
+    if (rest.some((pattern) => pattern.length === 0)) {
+      throw new Error("Find patterns cannot be empty.")
+    }
+    return { command, force: false, select: false, path: ".", patterns: rest }
+  }
 
   let force = false
   let select = false
@@ -129,6 +142,7 @@ Commands:
   fcks free [path]    Remove local files but preserve their folders
   fcks rm <path>      Remove a file or folder locally and remotely
   fcks ls [path]      List local, remote-only, and shared folder entries
+  fcks find <patterns...> Recursively find local and remote entries (glob syntax)
   Aliases: ph=push, pl=pull, sc=scaffold, fr=free
   fcks <command> -f   Approve all changes without prompting
   fcks pull -s [path] Select a remote child folder to pull
@@ -139,6 +153,8 @@ Optional paths default to the current directory; rm requires an explicit path.
 Paths must be inside the configured local folder. Hidden files and folders are
 included; empty folders are not synced.
 The -f and -s flags cannot be combined.
+Quote glob patterns so your shell passes them to fcks, for example
+fcks find '*.pdf' 'reports/**/final-?.docx'. Multiple patterns are OR matches.
 
 DAV server:  ${config?.serverUrl ?? "not configured"}
 Local folder: ${config?.localFolder || "not configured"}

@@ -1,7 +1,8 @@
 import { opendir, stat } from "node:fs/promises"
-import { posix } from "node:path"
+import { dirname, join, posix } from "node:path"
 
 import { DavClient } from "./dav.js"
+import { syncFolder } from "./sync.js"
 import { assertWithinLocalRoot } from "./target.js"
 
 const sourceColors = {
@@ -15,12 +16,6 @@ const resetColor = "\x1b[0m"
 export async function listFolder(target, config, dependencies = {}) {
   const scope = await assertWithinLocalRoot(target.path, config.localFolder)
   const dav = dependencies.dav ?? DavClient.fromConfig(config)
-  const [local, remote] = await Promise.all([
-    readLocalDirectory(scope.target),
-    readRemoteDirectory(dav, scope.relativePath),
-  ])
-  const entries = mergeEntries(local, remote)
-
   const useTui = dependencies.useTui ?? (
     process.stdin.isTTY &&
     process.stdout.isTTY &&
@@ -28,12 +23,39 @@ export async function listFolder(target, config, dependencies = {}) {
   )
   if (useTui) {
     const renderListing = dependencies.renderListing ?? (await import("./listing-tui.js")).runListingTui
-    await renderListing({
-      path: scope.target,
-      entries: entries.map((entry) => ({ ...entry, displayName: displayName(entry) })),
-    })
-    return entries
+    const synchronize = dependencies.synchronize ?? ((syncTarget) => syncFolder(syncTarget, config, { dav }))
+    let currentPath = scope.target
+    let entries = []
+    while (true) {
+      const currentScope = await assertWithinLocalRoot(currentPath, config.localFolder)
+      entries = await readFolderEntries(currentScope, dav)
+      const action = await renderListing({
+        path: currentScope.target,
+        canGoUp: currentScope.target !== scope.target,
+        entries: entries.map((entry) => ({ ...entry, displayName: displayName(entry) })),
+      })
+      if (!action || typeof action !== "object") return entries
+      if (action.type === "up") {
+        if (currentScope.target !== scope.target) currentPath = dirname(currentScope.target)
+        continue
+      }
+
+      const selected = entries.find((entry) => entry.name === action.name)
+      if (!selected) throw new Error("The listing selected an unknown entry.")
+      const selectedPath = join(currentScope.target, selected.name)
+      if (action.type === "open") {
+        if (selected.localType !== "directory" && selected.remoteType !== "directory") continue
+        currentPath = selectedPath
+        continue
+      }
+      if (action.type === "sync" && ["push", "pull", "merge"].includes(action.command)) {
+        const result = await synchronize({ path: selectedPath, command: action.command, force: false })
+        if (result?.interrupted) return entries
+      }
+    }
   }
+
+  const entries = await readFolderEntries(scope, dav)
 
   const output = dependencies.output ?? console
   const useColor = dependencies.color ?? supportsColor()
@@ -52,6 +74,18 @@ export async function listFolder(target, config, dependencies = {}) {
   return entries
 }
 
+/** Read one level from both sides, allowing a directory to exist on only one side. */
+export async function readFolderEntries(scope, dav) {
+  const [local, remote] = await Promise.all([
+    readLocalDirectory(scope.target),
+    readRemoteDirectory(dav, scope.relativePath),
+  ])
+  if (local.type !== "directory" && remote.type !== "directory") {
+    throw new Error(`List target is not a folder: ${scope.target}`)
+  }
+  return mergeEntries(local.entries, remote.entries)
+}
+
 function displaySource(source, useColor) {
   const label = source.padEnd(8)
   return useColor ? `${sourceColors[source]}${label}${resetColor}` : label
@@ -68,14 +102,14 @@ async function readLocalDirectory(path) {
   try {
     details = await stat(path)
   } catch (error) {
-    if (isNotFound(error)) return entries
+    if (isNotFound(error)) return { entries, type: null }
     throw error
   }
-  if (!details.isDirectory()) throw new Error(`List target is not a folder: ${path}`)
+  if (!details.isDirectory()) return { entries, type: localStatType(details) }
 
   const directory = await opendir(path)
   for await (const entry of directory) entries.set(entry.name, localType(entry))
-  return entries
+  return { entries, type: "directory" }
 }
 
 async function readRemoteDirectory(dav, scopePath) {
@@ -84,18 +118,18 @@ async function readRemoteDirectory(dav, scopePath) {
   try {
     target = await dav.stat(scopePath || "/")
   } catch (error) {
-    if (isNotFound(error)) return entries
+    if (isNotFound(error)) return { entries, type: null }
     throw error
   }
   if (target.type !== "directory") {
-    throw new Error(`List target is not a folder: ${scopePath || "."}`)
+    return { entries, type: target.type }
   }
 
   let contents
   try {
     contents = await dav.list(scopePath || "/", false)
   } catch (error) {
-    if (isNotFound(error)) return entries
+    if (isNotFound(error)) return { entries, type: null }
     throw error
   }
 
@@ -103,11 +137,14 @@ async function readRemoteDirectory(dav, scopePath) {
   for (const entry of contents) {
     const filename = normalizeRemotePath(entry.filename)
     if (filename === requested || posix.dirname(filename) !== requested) continue
-    const name = entry.basename || posix.basename(filename)
+    // Derive the name from the already-validated server path. A DAV-provided
+    // basename is untrusted and could otherwise turn a browser action into a
+    // path outside the selected folder.
+    const name = posix.basename(filename)
     if (!name || name === "." || name === "..") continue
     entries.set(name, entry.type)
   }
-  return entries
+  return { entries, type: "directory" }
 }
 
 function mergeEntries(local, remote) {
@@ -131,6 +168,12 @@ function localType(entry) {
   if (entry.isDirectory()) return "directory"
   if (entry.isFile()) return "file"
   if (entry.isSymbolicLink()) return "symlink"
+  return "other"
+}
+
+function localStatType(details) {
+  if (details.isFile()) return "file"
+  if (details.isSymbolicLink()) return "symlink"
   return "other"
 }
 

@@ -39,6 +39,19 @@ describe("combined folder listing", () => {
     expect(lines.join("\n")).toContain("remote-folder/")
   })
 
+  test("derives actionable names from safe remote paths", async () => {
+    const root = await makeTempDirectory()
+    const entry = remoteEntry("safe.txt", "file")
+    entry.basename = "../outside.txt"
+
+    const entries = await listFolder({ path: root }, { localFolder: root }, {
+      dav: new ListingDav([entry]),
+      output: { log() {} },
+    })
+
+    expect(entries.map((item) => item.name)).toEqual(["safe.txt"])
+  })
+
   test("maps a nested local folder to the same relative remote folder", async () => {
     const root = await makeTempDirectory()
     const nested = join(root, "nested")
@@ -72,6 +85,94 @@ describe("combined folder listing", () => {
       expect.objectContaining({ name: "remote-folder", source: "remote", displayName: "remote-folder/" }),
     ])
     expect(entries.map((entry) => entry.name)).toEqual(["local.txt", "remote-folder"])
+  })
+
+  test("browses remote-only folders and pulls an exact selected file", async () => {
+    const root = await makeTempDirectory()
+    const dav = new ListingDav([
+      remoteEntry("remote-folder", "directory"),
+      remoteEntry("remote-folder/nested", "directory"),
+      remoteEntry("remote-folder/nested/report.pdf", "file"),
+    ])
+    const renders = []
+    const syncTargets = []
+    const actions = [
+      { type: "open", name: "remote-folder" },
+      { type: "open", name: "nested" },
+      { type: "sync", command: "pull", name: "report.pdf" },
+      null,
+    ]
+
+    await listFolder({ path: root }, { localFolder: root }, {
+      dav,
+      useTui: true,
+      renderListing: async (listing) => {
+        renders.push(listing)
+        return actions.shift()
+      },
+      synchronize: async (target) => {
+        syncTargets.push(target)
+        return { actions: [] }
+      },
+    })
+
+    expect(renders.map((render) => render.path)).toEqual([
+      root,
+      join(root, "remote-folder"),
+      join(root, "remote-folder", "nested"),
+      join(root, "remote-folder", "nested"),
+    ])
+    expect(renders[1].canGoUp).toBe(true)
+    expect(syncTargets).toEqual([{
+      path: join(root, "remote-folder", "nested", "report.pdf"),
+      command: "pull",
+      force: false,
+    }])
+  })
+
+  test("dispatches either direction even when its source side is missing", async () => {
+    const root = await makeTempDirectory()
+    const actions = [
+      { type: "sync", command: "push", name: "remote.txt" },
+      null,
+    ]
+    const syncTargets = []
+
+    await listFolder({ path: root }, { localFolder: root }, {
+      dav: new ListingDav([remoteEntry("remote.txt", "file")]),
+      useTui: true,
+      renderListing: async () => actions.shift(),
+      synchronize: async (target) => syncTargets.push(target),
+    })
+
+    expect(syncTargets).toEqual([{
+      path: join(root, "remote.txt"),
+      command: "push",
+      force: false,
+    }])
+  })
+
+  test("dispatches merge for the exact selected item", async () => {
+    const root = await makeTempDirectory()
+    await writeFile(join(root, "notes.txt"), "notes")
+    const actions = [
+      { type: "sync", command: "merge", name: "notes.txt" },
+      null,
+    ]
+    const syncTargets = []
+
+    await listFolder({ path: root }, { localFolder: root }, {
+      dav: new ListingDav([]),
+      useTui: true,
+      renderListing: async () => actions.shift(),
+      synchronize: async (target) => syncTargets.push(target),
+    })
+
+    expect(syncTargets).toEqual([{
+      path: join(root, "notes.txt"),
+      command: "merge",
+      force: false,
+    }])
   })
 
   test("keeps text output when the interactive renderer is disabled", async () => {

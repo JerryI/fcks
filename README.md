@@ -22,6 +22,8 @@ LOCAL ROOT                                  DAV ROOT
       fcks scaffold = copy remote folder structure, without files
       fcks free     = delete local files, but keep folders
       fcks rm       = delete a path locally and remotely
+      fcks ls       = list both remote and local directories
+      fcks find     = find a file / folder
 ```
 
 Features:
@@ -31,6 +33,7 @@ Features:
 - Limited set of commands
 - Virtual folder scaffolding
 - Folder-tree mirroring
+- Search / browse features
 - File downloads and uploads, plus local folder cleanup, including subfolders
 
 This project was born out of deep frustration with OneDrive and Nextcloud sync
@@ -58,6 +61,8 @@ fcks scaffold [path] # recreate the remote folder structure locally
 fcks free [path]     # delete local files while retaining their folders
 fcks rm <path>       # delete a file/folder locally and remotely
 fcks ls [path]       # list shared, local-only, and remote-only entries
+fcks find '*.pdf'    # recursively find matching local and remote entries
+fcks find 'src/**/*.js' 'LICENSE' # multiple patterns are OR matches
 fcks push -f .       # skip confirmation (`-f` works with every operation)
 fcks pull -s .       # select one remote child folder to pull
 fcks push -s .       # select one local child folder to push
@@ -89,9 +94,32 @@ only available for `pull` and `push`, and cannot be combined with `-f`.
 
 In an interactive terminal, regular sync commands use OpenTUI for the same
 simple flow: scan, review the complete plan, confirm once, and watch progress.
-`ls` also uses an OpenTUI browser for its combined local and remote listing.
+`ls` uses an OpenTUI browser for its combined local and remote listing. Select a
+folder that exists on either side and press `Enter` to open it; use `Left` or
+`Backspace` to go to its parent. Press `P` to push, `L` to pull, or `M` to merge
+any selected file or folder. If the selected item is missing on the source side,
+the authoritative operation proposes deleting it from the destination side.
+These actions retain the normal preview and confirmation step, then return to
+the browser.
 When terminal interaction is unavailable, it falls back to a plain-text table
 that can be redirected or piped.
+
+`find` searches recursively from the current directory and combines local and
+remote results. Its patterns use conventional shell glob syntax: `*` matches
+zero or more characters within one path segment, `?` matches one character,
+`[abc]` matches a character set, and `**` crosses folders. A pattern without a
+slash, such as `*.pdf` or `README.md`, is matched against every entry name. A
+pattern with a slash, such as `reports/**/final-?.pdf`, is matched against the
+relative path. Multiple pattern arguments are OR matches. Quote patterns so
+the shell does not expand them before `fcks` receives them.
+
+In an interactive terminal, `find` shows progress while scanning and matching,
+then opens a selectable results table. Press `P`, `L`, or `M` to synchronize the
+exact result, `Enter` or `O` to reveal a local result in Finder (or the platform
+file manager), and `C` to start a subshell in the selected folder or a selected
+file's parent. Exit that subshell to return to refreshed search results. A
+remote-only result must be pulled before it can be opened locally. When output
+is redirected or piped, `find` prints its result table instead.
 
 Press `Esc` or `Ctrl+C` to interrupt planning or execution. No new work is
 started, active hashes and transfers are aborted, and the result reports how
@@ -100,7 +128,9 @@ next `push`, `pull`, or `merge` reconciles any partial state. Downloads stream
 directly into place without staging files, so interruption can leave a partial
 destination file. Interrupted CLI runs exit with status 130.
 
-- `ls` is read-only and lists one folder level, like Unix `ls`.
+- Plain-text `ls` lists one folder level. Its interactive browser can traverse
+  folders and only changes data when you explicitly launch a selected-item
+  push, pull, or merge and confirm the resulting sync plan.
 
 - `push` and `pull` are intentionally authoritative and may delete files on the
 destination side.

@@ -52,6 +52,24 @@ test("parses selection mode only for push and pull and rejects force combination
   expect(() => parseInvocation(["pull", "-s", "-s", "."])).toThrow("only be specified once")
 })
 
+test("parses one or more find patterns as OR matches", () => {
+  expect(parseInvocation(["find", "*.js"])).toEqual({
+    command: "find",
+    force: false,
+    select: false,
+    path: ".",
+    patterns: ["*.js"],
+  })
+  expect(parseInvocation(["find", "--", "-draft*", "docs/**/final.pdf"])).toEqual({
+    command: "find",
+    force: false,
+    select: false,
+    path: ".",
+    patterns: ["-draft*", "docs/**/final.pdf"],
+  })
+  expect(() => parseInvocation(["find"])).toThrow("requires at least one pattern")
+})
+
 test("passes force mode only when -f comes before the path", async () => {
   const home = await makeHome()
   const options = configOptions(home)

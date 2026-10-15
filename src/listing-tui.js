@@ -1,6 +1,7 @@
 import {
   BoxRenderable,
-  ScrollBoxRenderable,
+  SelectRenderable,
+  SelectRenderableEvents,
   TextAttributes,
   TextRenderable,
   createCliRenderer,
@@ -21,14 +22,8 @@ const sourceLabels = {
   remote: "remote only",
 }
 
-const sourceColors = {
-  both: "#86efac",
-  local: "#67e8f9",
-  remote: "#c4b5fd",
-}
-
-/** Render a read-only, scrollable view of a combined local and remote listing. */
-export async function runListingTui({ path, entries }) {
+/** Render one selectable level of the combined local and remote browser. */
+export async function runListingTui({ path, entries, canGoUp = false }) {
   const renderer = await createCliRenderer({
     exitOnCtrlC: false,
     backgroundColor: colors.background,
@@ -37,12 +32,13 @@ export async function runListingTui({ path, entries }) {
 
   return new Promise((resolve) => {
     let finished = false
-    const finish = () => {
+    let onKey
+    const finish = (result = null) => {
       if (finished) return
       finished = true
       renderer.keyInput.off("keypress", onKey)
       renderer.destroy()
-      resolve()
+      resolve(result)
     }
 
     const screen = new BoxRenderable(renderer, {
@@ -70,36 +66,65 @@ export async function runListingTui({ path, entries }) {
         fg: colors.muted,
         attributes: TextAttributes.BOLD,
       }))
-      const list = new ScrollBoxRenderable(renderer, {
+      const list = new SelectRenderable(renderer, {
         flexGrow: 1,
         width: "100%",
+        options: entries.map((entry) => ({
+          name: listingRow(entry),
+          description: "",
+          value: entry,
+        })),
         backgroundColor: colors.panel,
-        focusable: true,
-        scrollX: false,
-        scrollY: true,
-        contentOptions: {
-          flexDirection: "column",
-          backgroundColor: colors.panel,
-          padding: 1,
-        },
+        focusedBackgroundColor: colors.panel,
+        textColor: colors.text,
+        focusedTextColor: colors.text,
+        selectedBackgroundColor: colors.border,
+        selectedTextColor: "#ffffff",
+        descriptionColor: colors.muted,
+        selectedDescriptionColor: "#dbeafe",
+        showScrollIndicator: true,
+        showDescription: false,
+        wrapSelection: true,
       })
-      for (const entry of entries) {
-        list.add(new TextRenderable(renderer, {
-          width: "100%",
-          height: 1,
-          content: listingRow(entry),
-          fg: sourceColors[entry.source],
-          wrapMode: "none",
-          truncate: true,
-        }))
-      }
       screen.add(list)
       screen.add(new TextRenderable(renderer, {
-        content: "↑↓ or PgUp/PgDn scroll · Enter, q, Esc, or Ctrl+C close",
+        content: `${canGoUp ? "←/Backspace parent · " : ""}Enter open folder · P push · L pull · M merge · Q/Esc close`,
         fg: colors.muted,
       }))
       renderer.root.add(screen)
       list.focus()
+
+      list.on(SelectRenderableEvents.ITEM_SELECTED, (_index, option) => {
+        const entry = option?.value
+        if (entry && (entry.localType === "directory" || entry.remoteType === "directory")) {
+          finish({ type: "open", name: entry.name })
+        }
+      })
+
+      const selectedAction = (command) => {
+        const entry = list.getSelectedOption()?.value
+        if (!entry) return
+        finish({ type: "sync", command, name: entry.name })
+      }
+
+      onKey = (key) => {
+        if (key.name === "escape" || key.name === "q" || key.ctrl && key.name === "c") {
+          key.preventDefault()
+          finish()
+        } else if (canGoUp && ["left", "backspace", "h"].includes(key.name)) {
+          key.preventDefault()
+          finish({ type: "up" })
+        } else if (key.name === "p") {
+          key.preventDefault()
+          selectedAction("push")
+        } else if (key.name === "l") {
+          key.preventDefault()
+          selectedAction("pull")
+        } else if (key.name === "m") {
+          key.preventDefault()
+          selectedAction("merge")
+        }
+      }
     } else {
       const empty = new BoxRenderable(renderer, {
         flexGrow: 1,
@@ -113,22 +138,18 @@ export async function runListingTui({ path, entries }) {
       }))
       screen.add(empty)
       screen.add(new TextRenderable(renderer, {
-        content: "Enter, q, Esc, or Ctrl+C close",
+        content: `${canGoUp ? "←/Backspace parent · " : ""}Q/Esc close`,
         fg: colors.muted,
       }))
       renderer.root.add(screen)
-    }
-
-    const onKey = (key) => {
-      if (
-        key.name === "escape" ||
-        key.name === "return" ||
-        key.name === "enter" ||
-        key.name === "q" ||
-        key.ctrl && key.name === "c"
-      ) {
-        key.preventDefault()
-        finish()
+      onKey = (key) => {
+        if (key.name === "escape" || key.name === "q" || key.ctrl && key.name === "c") {
+          key.preventDefault()
+          finish()
+        } else if (canGoUp && ["left", "backspace", "h"].includes(key.name)) {
+          key.preventDefault()
+          finish({ type: "up" })
+        }
       }
     }
     renderer.keyInput.on("keypress", onKey)
